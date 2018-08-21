@@ -1,0 +1,6 @@
+/dist
+/build
+/.DS_Store
+/ncluster.egg-info
+/ncluster/__pycache__
+/.eggs

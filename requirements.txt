@@ -1,0 +1,4 @@
+boto3
+paramiko
+portpicker
+tzlocal
