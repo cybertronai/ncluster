@@ -1,4 +1,6 @@
 import os
+import collections
+
 from . import aws_backend
 from . import tmux_backend
 
@@ -22,8 +24,11 @@ def make_task(name, **kwargs):
   return _backend.make_task(name, **kwargs)
 
 def join(things_to_join):
-  for thing in things_to_join:
-    thing.join()
+  if isinstance(things_to_join, collections.Iterable):
+    for thing in things_to_join:
+      thing.join()
+  else:
+    things_to_join.join()
 
 # set default backend from environment
 if 'NCLUSTER_BACKEND' in os.environ:

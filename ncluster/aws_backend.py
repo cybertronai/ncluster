@@ -20,6 +20,13 @@ TENSORBOARD_PORT=6006  # port used for external HTTP communication
 
 # TODO: a way to capture output of task.run. This could help with checking if umount is needed ('/dev/xdvf' in df)
 
+def make_task(name, run_name='', ami='', install_script=''):
+  instance = u.aws_lookup_instance(name, run_name)
+
+
+def make_job(name, run_name, ami='', install_script=''):
+  pass
+
 def make_run(name, **kwargs):
   return Run(name, **kwargs)
 
@@ -100,7 +107,6 @@ class Run(backend.Run):
     if user_data:
       user_data+='\necho userdata_ok >> /tmp/is_initialized\n'
 
-    #    print("Using user_data", user_data)
 
     # TODO: also make sure instance type is the same
     if instances:
@@ -409,6 +415,9 @@ tmux a
 
 
 
+  def join(self):
+    self.wait_until_ready()
+    
   # TODO: add "wait_for_file", that will help user-defined synchronization
   # todo: rename wait_until_ready to wait_until_initialized
   def wait_until_ready(self):
