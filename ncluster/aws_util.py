@@ -17,8 +17,6 @@ from collections import defaultdict
 from operator import itemgetter
 
 
-
-
 # shortcuts to refer to util module, this lets move external code referencing
 # util or u into this module unmodified
 util = sys.modules[__name__]   
@@ -62,7 +60,8 @@ def validate_resource_name(name):
 
 def validate_run_name(name):
   """Name used for run. Used as part of instance name, tmux session name."""
-  validate_resource_name(name)
+  assert len(name)<=30
+  validate_aws_name(name)
   
 def deprecated_validate_name(name):
   """Checks that name matches AWS requirements."""
