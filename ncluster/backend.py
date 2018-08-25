@@ -8,7 +8,7 @@ import threading
 import time
 
 # aws_backend.py
-# tmux_backend.py
+# local_backend.py
 
 LOGDIR_PREFIX='/efs/runs'
 
@@ -34,23 +34,13 @@ To reconnect to existing job:
 """
 
 
-def set_global_logdir_prefix(logdir_prefix):
+def _set_global_logdir_prefix(logdir_prefix):
   """Globally changes logdir prefix across all runs."""
   global LOGDIR_PREFIX
   LOGDIR_PREFIX = logdir_prefix
 
 
-# todo: rename to "start_run" instead of setup_run?
-def make_run(name):
-  """Sets up "run" with given name, such as "training run"."""
-  raise NotImplementedError()
-
-# def make_job(run_name, job_name, **kwargs):
-#   """Initializes Job object. It will reuse existing cluster resources if the job with given parameters has already been launched."""
-#   raise NotImplementedError()
-
-
-def current_timestamp():
+def _current_timestamp():
   # timestamp format from https://github.com/tensorflow/tensorflow/blob/155b45698a40a12d4fef4701275ecce07c3bb01a/tensorflow/core/platform/default/logging.cc#L80
   current_seconds=time.time()
   remainder_micros=int(1e6*(current_seconds-int(current_seconds)))
@@ -81,7 +71,7 @@ class Run:
     for job in self.jobs:
       job.run(*args, **kwargs)
 
-  def run_and_capture_output(self, *args, **kwargs):
+  def _run_and_capture_output(self, *args, **kwargs):
     """Runs command on every first job in the run, returns stdout."""
 
     return self.jobs[0]._run_and_capture_output(*args, **kwargs)
@@ -100,7 +90,7 @@ class Run:
 
   def log(self, message, *args):
     """Log to client console."""
-    ts = current_timestamp()
+    ts = _current_timestamp()
     if args:
       message = message % args
 
@@ -111,7 +101,7 @@ class Job:
   def __init__(self):
     self.tasks = []
 
-  def run_async(self, cmd, *args, **kwargs):
+  def _run_async(self, cmd, *args, **kwargs):
     self.run(cmd, sync=False, *args, **kwargs)
     
   def run(self, cmd, *args, **kwargs):
@@ -120,7 +110,7 @@ class Job:
     for task in self.tasks:
       task.run(cmd, *args, **kwargs)
 
-  def run_and_capture_output(self, cmd, *args, **kwargs):
+  def _run_and_capture_output(self, cmd, *args, **kwargs):
     """Runs command on first task in the job, returns stdout."""
 
     return self.tasks[0]._run_and_capture_output(cmd, *args, **kwargs)
@@ -206,7 +196,7 @@ class Task:
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
     raise NotImplementedError()    
 
-  def run_async(self, cmd, *args, **kwargs):
+  def _run_async(self, cmd, *args, **kwargs):
     self.run(cmd, sync=False, *args, **kwargs)
     
   def _upload_handler(self, line):
@@ -244,7 +234,7 @@ class Task:
     if args:
       message = message % args
 
-    print(f"{current_timestamp()} {self.name}: {message}")
+    print(f"{_current_timestamp()} {self.name}: {message}")
 
   def file_write(self, fn, contents):
     """Write string contents to file fn in task."""
@@ -258,11 +248,18 @@ class Task:
     """Return true if file exists in task current directory."""
     raise NotImplementedError()
 
-  def stream_file(self, fn):
+  def _stream_file(self, fn):
     """Streams task-local file to console (path relative to taskdir)."""
     raise NotImplementedError()
-  
 
-  def _ossystem(self, cmd):
-    #    self.log(cmd)
-    os.system(cmd)
+
+# todo: rename to "start_run" instead of setup_run?
+def make_run(name) -> Run:
+  """Sets up "run" with given name, such as "training run"."""
+  raise NotImplementedError()
+
+# def make_job(run_name, job_name, **kwargs):
+#   """Initializes Job object. It will reuse existing cluster resources if the job with given parameters has already been launched."""
+#   raise NotImplementedError()
+
+

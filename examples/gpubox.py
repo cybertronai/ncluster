@@ -9,12 +9,12 @@ import ncluster
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, default='gpubox',
-                     help="name of the current run")
+                    help="name of the current run")
 parser.add_argument('--ami', type=str,
                     default='Deep Learning AMI (Ubuntu) Version 12.0',
                     help="name of AMI to use ")
 parser.add_argument('--instance-type', type=str, default='g3.4xlarge',
-                     help="type of instance")
+                    help="type of instance")
 parser.add_argument('--password',
                     default='DefaultNotebookPasswordPleaseChange',
                     help='password to use for jupyter notebook')
