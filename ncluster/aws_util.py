@@ -1,8 +1,6 @@
 """Methods used in aws_backend, but also useful for standalone prototyping in Jupyter"""
 
-import argparse
 import boto3
-import os
 import os
 import random
 import re
@@ -24,11 +22,7 @@ RETRY_TIMEOUT_SEC = 30  # how long to wait before retrying fails
 DEFAULT_PREFIX = 'ncluster'
 PRIVATE_KEY_LOCATION = os.environ['HOME']+'/.ncluster'
 
-# shortcuts to refer to util module, this lets move external code referencing
-# util or u into this module unmodified
-#util = sys.modules[__name__]
-#u = util
-
+from . import util
 
 def get_vpc():
   """
@@ -415,10 +409,10 @@ def create_efs(name):
       assert is_good_response(response)
       time.sleep(RETRY_INTERVAL_SEC)
     except Exception as e:
-      if e.response['Error']['Code'] == 'FileSystemAlreadyExists':
+      if response['Error']['Code'] == 'FileSystemAlreadyExists':
         break
       else:
-        log_error(e)
+        util.log_error(e)
       break
 
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
@@ -581,32 +575,6 @@ def get_name(tags_or_instance_or_id):
     assert False, "have more than one name: "+str(names)
   return names[0]
     
-def _shell_add_echo(script):
-  """Goes over each line script, adds "echo cmd" in front of each cmd.
-
-  ls a
-
-  becomes
-
-  echo * ls a
-  ls a
-  """
-  new_script = ""
-  for cmd in script.split('\n'):
-    cmd = cmd.strip()
-    if not cmd:
-      continue
-    new_script+="echo \\* " + shlex.quote(cmd) + "\n"
-    new_script+=cmd+"\n"
-  return new_script
-
-def _shell_strip_comment(cmd):
-  """ hi # testing => hi"""
-  if '#' in cmd:
-    return cmd.split('#', 1)[0]
-  else:
-    return cmd
-
 
 # augmented SFTP client that can transfer directories, from
 # https://stackoverflow.com/a/19974994/419116
@@ -644,32 +612,4 @@ def wait_until_available(resource):
     if resource.state == 'available':
       break
     time.sleep(RETRY_INTERVAL_SEC)
-
-##########################################################################
-# non-AWS specific methods
-##########################################################################
-
-from collections import Iterable
-def is_iterable(k):
-  return isinstance(k, Iterable)
-
-def now_micros():
-  """Return current micros since epoch as integer."""
-  return int(time.time()*1e6)
-
-def log_error(*args, **kwargs):
-  print(f"Error encountered {args} {kwargs}")
-
-def log(*args, **kwargs):
-  print(f"{args} {kwargs}")
-
-def install_pdb_handler():
-  """Make CTRL+\ break into gdb."""
-  
-  import signal
-  import pdb
-
-  def handler(signum, frame):
-    pdb.set_trace()
-  signal.signal(signal.SIGQUIT, handler)
 

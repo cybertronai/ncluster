@@ -10,6 +10,7 @@ import time
 
 from . import backend
 from . import aws_util as u
+from . import util
 from . import aws_create_resources as create_lib
 
 TMPDIR='/tmp/ncluster'  # location for temp files on launching machine
@@ -76,7 +77,7 @@ def set_aws_environment():
     current_zone = current_region+'a'
     os.environ['AWS_ZONE'] = current_zone
     
-  u.log(f"Using account {u.get_account_number()}, zone {current_zone}")
+  util.log(f"Using account {u.get_account_number()}, zone {current_zone}")
 
 
 def make_task(name=None,
@@ -88,7 +89,7 @@ def make_task(name=None,
   set_aws_environment()
 
   if name is None:
-    name = f"{u.get_prefix()}-{u.now_micros()}"
+    name = f"{u.get_prefix()}-{util.now_micros()}"
   instance = u.lookup_instance(name)  # todo: also add kwargs
   maybe_start_instance(instance)
   
@@ -100,7 +101,7 @@ def make_task(name=None,
   
   # create the instance if not present
   if not instance:
-    u.log(f"Allocating {instance_type} for task {name}")
+    util.log(f"Allocating {instance_type} for task {name}")
     args = {'ImageId': image.id,
             'InstanceType': instance_type,
             'MinCount': 1,
@@ -132,7 +133,7 @@ def make_task(name=None,
       sys.exit()
 
     assert instances, f"ec2.create_instances returned {instances}"
-    u.log(f"Allocated {len(instances)} instances")
+    util.log(f"Allocated {len(instances)} instances")
     instance = instances[0]
 
   task = Task(name, instance, # propagate optional args
@@ -187,7 +188,7 @@ class Task(backend.Task):
     self._local_scratch = f"{TMPDIR}/{name}"
     self._remote_scratch = f"{TMPDIR}/{name}"
     
-    self._ossystem('mkdir -p '+self._local_scratch)
+    os.system('mkdir -p '+self._local_scratch)
 
     self._initialized_fn = f'{TMPDIR}/{self.name}.initialized'
     
@@ -213,7 +214,7 @@ class Task(backend.Task):
       # bin/bash needed to make self-executable or use UserData
       self.install_script = '#!/bin/bash\n' + self.install_script
       self.install_script += f'\necho ok > {self._initialized_fn}\n'
-      self.file_write('install.sh', u._shell_add_echo(self.install_script))
+      self.file_write('install.sh', util.shell_add_echo(self.install_script))
       self.run('bash -e install.sh') # fail on errors
       # TODO(y): propagate error messages printed on console to the user
       # right now had to log into tmux to see them
@@ -308,12 +309,12 @@ tmux a
     return 'No such file' not in stdout
   
   def file_write(self, remote_fn, contents):
-    tmp_fn = self._local_scratch+'/'+str(u.now_micros())
+    tmp_fn = self._local_scratch+'/'+str(util.now_micros())
     open(tmp_fn, 'w').write(contents)
     self.upload(tmp_fn, remote_fn)
 
   def file_read(self, remote_fn):
-    tmp_fn = self._local_scratch+'/'+str(u.now_micros())
+    tmp_fn = self._local_scratch+'/'+str(util.now_micros())
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
@@ -344,7 +345,7 @@ tmux a
     # TODO: maybe piping is ok, check
     assert '|' not in cmd, "don't support piping (since we append piping here)"
     
-    ts = str(u.now_micros())
+    ts = str(util.now_micros())
     cmd_stdout_fn = self._remote_scratch+'/'+str(self._run_counter)+'.'+ts+'.out'
     cmd = f'{cmd} | tee {cmd_stdout_fn}'
     self.run(cmd, async, ignore_errors)
@@ -355,19 +356,23 @@ tmux a
     """Runs command in tmux session."""
 
     assert self._can_run, ".run command is not yet available"
-    cmd = cmd.strip()
     self._run_counter += 1
+
+    cmd: str = cmd.strip()
+    if cmd.startswith('#'):  # ignore empty/commented out lines
+      return
+
     self._log("tmux> %s", cmd)
 
     # locking to wait for command to finish
-    ts = str(u.now_micros())
+    ts = str(util.now_micros())
     cmd_fn_out = self._remote_scratch+'/'+str(self._run_counter)+'.'+ts+'.out'
 
-    cmd = u._shell_strip_comment(cmd)
+    cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
     # modify command to dump shell success status into file
-    modified_cmd = '%s; echo $? > %s'%(cmd, cmd_fn_out)
+    modified_cmd = '%s; echo $? > %s' % (cmd, cmd_fn_out)
     modified_cmd = shlex.quote(modified_cmd)
     tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
     self._run_raw(tmux_cmd)
@@ -379,7 +384,7 @@ tmux a
 
     while True:
       if time.time() - start_time > max_wait_sec:
-        assert False, "Timeout %s exceeded for %s" %(max_wait_sec, cmd)
+        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, cmd)
       if not self.file_exists(cmd_fn_out):
         self._log("waiting for %s"%(cmd,))
         time.sleep(check_interval)

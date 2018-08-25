@@ -3,7 +3,8 @@ import collections
 
 from . import aws_backend
 from . import aws_util
-from . import tmux_backend
+from . import local_backend
+from . import backend # TODO: remove?
 
 
 def set_backend(backend_name):
@@ -12,21 +13,21 @@ def set_backend(backend_name):
   if backend_name == 'aws':
     _backend = aws_backend
   elif backend_name == 'local':
-    _backend = tmux_backend
+    _backend = local_backend
   else:
     assert False, f"Unknown backend {backend_name}"
 
 
-def make_run(**kwargs):
-  return _backend.Run(**kwargs)
+def make_run(name='', **kwargs):
+  return _backend.Run(name, **kwargs)
 
 
-def make_job(**kwargs):
-  return _backend.make_job(**kwargs)
+def make_job(name='', **kwargs):
+  return _backend.make_job(name, **kwargs)
 
 
-def make_task(**kwargs):
-  return _backend.make_task(**kwargs)
+def make_task(name='', **kwargs):
+  return _backend.make_task(name, **kwargs)
 
 
 def join(things_to_join):
