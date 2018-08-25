@@ -4,3 +4,5 @@
 /ncluster.egg-info
 /ncluster/__pycache__
 /.eggs
+/ncluster/.idea
+/.idea

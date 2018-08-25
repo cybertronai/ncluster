@@ -19,7 +19,7 @@ import boto3
 import time
 from collections import OrderedDict
 
-import util as u
+from . import aws_util as u
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--kind', type=str, default='all',
@@ -29,15 +29,14 @@ parser.add_argument('--force-delete-efs', action='store_true',
 
 args = parser.parse_args()
 
-EFS_NAME=u.get_resource_name()
-VPC_NAME=u.get_resource_name()
-SECURITY_GROUP_NAME=u.get_resource_name()
-ROUTE_TABLE_NAME=u.get_resource_name()
+EFS_NAME=u.get_prefix()
+VPC_NAME=u.get_prefix()
+SECURITY_GROUP_NAME=u.get_prefix()
+ROUTE_TABLE_NAME=u.get_prefix()
 KEYPAIR_NAME=u.get_keypair_name()
-EFS_NAME=u.get_resource_name()
 
-client = u.create_ec2_client()
-ec2 = u.create_ec2_resource()
+client = u.get_ec2_client()
+ec2 = u.get_ec2_resource()
 
 def response_type(response):
   return 'ok' if u.is_good_response(response) else 'failed'
@@ -45,7 +44,7 @@ def response_type(response):
 def delete_efs():
   efss = u.get_efs_dict()
   efs_id = efss.get(EFS_NAME, '')
-  efs_client = u.create_efs_client()
+  efs_client = u.get_efs_client()
   if efs_id:
     try:
       # delete mount targets first
@@ -66,11 +65,12 @@ def delete_efs():
 
       sys.stdout.write('Deleting EFS %s (%s)... ' %(efs_id, EFS_NAME))
       sys.stdout.flush()
-      u.delete_efs_id(efs_id)
+      u.delete_efs_by_id(efs_id)
 
     except Exception as e:
-      sys.stdout.write('failed\n')
-      u.loge(str(e)+'\n')
+      sys.stdout.write(f'failed with {e}\n')
+      u.loge(str(e) + '\n')
+
 
 def delete_network():
   existing_vpcs = u.get_vpc_dict()
@@ -84,7 +84,7 @@ def delete_network():
         sys.stdout.write(response_type(subnet.delete())+'\n')
       except Exception as e:
         sys.stdout.write('failed\n')
-        u.loge(str(e)+'\n')
+        u.log_error(str(e)+'\n')
 
     for gateway in vpc.internet_gateways.all():
       sys.stdout.write("Deleting gateway %s ... " % (gateway.id))
@@ -103,7 +103,7 @@ def delete_network():
         sys.stdout.write(response_type(route_table.delete())+'\n')
       except Exception as e:
         sys.stdout.write('failed\n')
-        u.loge(str(e)+'\n')
+        u.log_error(str(e)+'\n')
 
     def desc(security_group):
       return "%s (%s, %s)"%(security_group.id, u.get_name(security_group.tags),
@@ -115,14 +115,14 @@ def delete_network():
         sys.stdout.write(response_type(security_group.delete())+'\n')
       except Exception as e:
         sys.stdout.write('failed\n')
-        u.loge(str(e)+'\n')
+        u.log_error(str(e)+'\n')
 
     sys.stdout.write("Deleting VPC %s ... " % (vpc.id))
     try:
       sys.stdout.write(response_type(vpc.delete())+'\n')
     except Exception as e:
       sys.stdout.write('failed\n')
-      u.loge(str(e)+'\n')
+      u.log_error(str(e)+'\n')
   
 def delete_keypair():
   keypairs = u.get_keypair_dict()
@@ -134,7 +134,7 @@ def delete_keypair():
       sys.stdout.write(response_type(keypair.delete())+'\n')
     except Exception as e:
       sys.stdout.write('failed\n')
-      u.loge(str(e)+'\n')
+      u.log_error(str(e)+'\n')
 
   keypair_fn = u.get_keypair_fn()
   if os.path.exists(keypair_fn):
@@ -145,14 +145,14 @@ def delete_resources():
   # TODO: also bring down all the instances and wait for them to come down
   region = os.environ['AWS_DEFAULT_REGION']
 
-  resource = u.get_resource_name()
+  resource = u.get_prefix()
   print("Deleting %s resources in region %s"%(resource, region,))
   print("Make sure all connected instances are terminated or this will fail.")
   
   if 'efs' in args.kind or 'all' in args.kind:
-    if EFS_NAME == u.DEFAULT_RESOURCE_NAME and not args.force_delete_efs:
+    if EFS_NAME == u.DEFAULT_PREFIX and not args.force_delete_efs:
       # this is default EFS, likely has stuff, require extra flag to delete it
-      print("Nexus EFS has useful stuff in it, not deleting it")
+      print("DEDFAULT EFS has useful stuff in it, not deleting it. Use force-delete-efs flag to force")
     else:
       delete_efs()
   if 'network' in args.kind or 'all' in args.kind:

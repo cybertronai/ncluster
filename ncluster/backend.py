@@ -5,8 +5,7 @@
 import os
 import glob
 import threading
-
-from . import util as u
+import time
 
 # aws_backend.py
 # tmux_backend.py
@@ -34,10 +33,12 @@ To reconnect to existing job:
 
 """
 
+
 def set_global_logdir_prefix(logdir_prefix):
   """Globally changes logdir prefix across all runs."""
   global LOGDIR_PREFIX
   LOGDIR_PREFIX = logdir_prefix
+
 
 # todo: rename to "start_run" instead of setup_run?
 def make_run(name):
@@ -49,12 +50,23 @@ def make_run(name):
 #   raise NotImplementedError()
 
 
+def current_timestamp():
+  # timestamp format from https://github.com/tensorflow/tensorflow/blob/155b45698a40a12d4fef4701275ecce07c3bb01a/tensorflow/core/platform/default/logging.cc#L80
+  current_seconds=time.time()
+  remainder_micros=int(1e6*(current_seconds-int(current_seconds)))
+  time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_seconds))
+  full_time_str = "%s.%06d"%(time_str, remainder_micros)
+  return full_time_str
+
+
 class Run:
   """Run is a collection of jobs that share statistics. IE, training run will contain gradient worker job, parameter server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and event files."""
 
   def __init__(self, name, install_script=None):
     """Creates a run. If install_script is specified, it's used as default
     install_script for all jobs (can be overridden by Job constructor)"""
+    self.jobs = []
+    self.name = ''
     raise NotImplementedError()
   
   def make_job(self, name, num_tasks=1, install_script=None, **kwargs):
@@ -72,7 +84,7 @@ class Run:
   def run_and_capture_output(self, *args, **kwargs):
     """Runs command on every first job in the run, returns stdout."""
 
-    return self.jobs[0].run_and_capture_output(*args, **kwargs)
+    return self.jobs[0]._run_and_capture_output(*args, **kwargs)
 
   def _run_raw(self, *args, **kwargs):
     """_run_raw on every job in the run."""
@@ -80,9 +92,7 @@ class Run:
     for job in self.jobs:
       job._run_raw(*args, **kwargs)
 
-      
   def upload(self, *args, **kwargs):
-    
     """Runs command on every job in the run."""
     
     for job in self.jobs:
@@ -90,7 +100,7 @@ class Run:
 
   def log(self, message, *args):
     """Log to client console."""
-    ts = u.current_timestamp()
+    ts = current_timestamp()
     if args:
       message = message % args
 
@@ -113,7 +123,7 @@ class Job:
   def run_and_capture_output(self, cmd, *args, **kwargs):
     """Runs command on first task in the job, returns stdout."""
 
-    return self.tasks[0].run_and_capture_output(cmd, *args, **kwargs)
+    return self.tasks[0]._run_and_capture_output(cmd, *args, **kwargs)
 
   def _run_raw(self, *args, **kwargs):
     """_run_raw on every task in the job."""
@@ -137,6 +147,7 @@ class Job:
 
   def async_join(self, task_fn):
     exceptions = []
+
     def fn_wrapper(x): # Propagate exceptions to crash the main thread
       try: task_fn(x)
       except Exception as e: exceptions.append(e)
@@ -191,7 +202,7 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()    
 
-  def _run_raw(self, cmd, sync, ignore_errors):
+  def _run_raw(self, cmd):
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
     raise NotImplementedError()    
 
@@ -206,7 +217,6 @@ class Task:
 
     Glob expressions, ie
     %upload *.py"""
-
 
     toks = line.split()
     assert len(toks) == 2
@@ -228,45 +238,13 @@ class Task:
     """Downloads remote file to current directory."""
     raise NotImplementedError()
 
-  @property
-  def ip(self):
-    raise NotImplementedError()
 
-  @property
-  def public_ip(self):
-    """Helper method to provide a publicly facing ip for given task when
-    tasks run on a different network than user (ie, AWS internal vs. user's
-    laptop)"""
-    raise NotImplementedError()
-
-  @property
-  def logdir(self):
-    return self.job.logdir
-
-    
-  
-  @property
-  def port(self):
-    """This is (the main) internal port that this task will use for
-    communicating with other tasks. When using TensorFlow, this would be the 
-    port on which TensorFlow server is listening."""
-    return self._port
-
-  @property
-  def public_port(self):
-    """This is a port that's used to access task from public internet.
-    On AWS it tends to be fixed because it's set by underlying infrastructure
-    (security group), defer implementation to backend."""
-    raise NotImplementedError()
-
-
-  def log(self, message, *args):
-    """Log to client console."""
-    ts = u.current_timestamp()
+  def _log(self, message, *args):
+    """Log to launcher console."""
     if args:
       message = message % args
 
-    print("%s %d.%s: %s"%(ts, self.id, self.job.name, message))
+    print(f"{current_timestamp()} {self.name}: {message}")
 
   def file_write(self, fn, contents):
     """Write string contents to file fn in task."""

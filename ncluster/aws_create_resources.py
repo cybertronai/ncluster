@@ -10,21 +10,13 @@ import sys
 import time
 from collections import OrderedDict
 
-import util as u
+from . import aws_util as u
 
 DRYRUN=False
 DEBUG=True
 
 # Names of Amazon resources that are created. These settings are fixed across
 # all runs, and correspond to resources created once per user per region.
-
-# todo: move these out of default namespace?
-DEFAULT_NAME=u.get_resource_name()
-VPC_NAME=u.get_resource_name()
-SECURITY_GROUP_NAME=u.get_resource_name()
-ROUTE_TABLE_NAME=u.get_resource_name()
-KEYPAIR_NAME=u.get_keypair_name()
-EFS_NAME=u.get_resource_name()
 
 PUBLIC_TCP_RANGES = [
   22, # ssh 
@@ -36,14 +28,12 @@ PUBLIC_TCP_RANGES = [
   (6006, 6016)
 ]
 
-PUBLIC_UDP_RANGES = [(60000,60100)] # mosh ports
+PUBLIC_UDP_RANGES = [(60000,61000)] # mosh ports
 
 # region is taken from environment variable AWS_DEFAULT_REGION
 # assert 'AWS_DEFAULT_REGION' in os.environ
 #assert os.environ['AWS_DEFAULT_REGION'] in {'us-east-2','us-east-1','us-west-1','us-west-2','ap-south-1','ap-northeast-2','ap-southeast-1','ap-southeast-2','ap-northeast-1','ca-central-1','eu-west-1','eu-west-2','sa-east-1'}
 
-
-import util as u
 
 def network_setup():
   """Creates VPC if it doesn't already exists, configures it for public
@@ -51,17 +41,18 @@ def network_setup():
 
   # from https://gist.github.com/nguyendv/8cfd92fc8ed32ebb78e366f44c2daea6
 
-  ec2 = u.create_ec2_resource()
+  ec2 = u.get_ec2_resource()
   existing_vpcs = u.get_vpc_dict()
-  zones = u.get_available_zones()
-  if VPC_NAME in existing_vpcs:
-    print("Reusing VPC "+VPC_NAME)
-    vpc = existing_vpcs[VPC_NAME]
+  zones = u.get_zones()
+  vpc_name = u.get_vpc_name()
+  if u.get_vpc_name() in existing_vpcs:
+    print("Reusing VPC "+vpc_name)
+    vpc = existing_vpcs[vpc_name]
     subnets = list(vpc.subnets.all())
     assert len(subnets) == len(zones), "Has %s subnets, but %s zones, something went wrong during resource creation, try delete_resources.py/create_resources.py"%(len(subnets), len(zones))
     
   else:
-    print("Creating VPC "+VPC_NAME)
+    print("Creating VPC "+vpc_name)
     vpc = ec2.create_vpc(CidrBlock='192.168.0.0/16')
 
     # enable DNS on the VPC
@@ -70,29 +61,30 @@ def network_setup():
     response = vpc.modify_attribute(EnableDnsSupport={"Value":True})
     assert u.is_good_response(response)
     
-    vpc.create_tags(Tags=u.make_name(VPC_NAME))
+    vpc.create_tags(Tags=u.create_name_tags(vpc_name))
     vpc.wait_until_available()
 
   gateways = u.get_gateway_dict(vpc)
-  if DEFAULT_NAME in gateways:
-    print("Reusing gateways "+DEFAULT_NAME)
+  gateway_name = u.get_gateway_name()
+  if gateway_name in gateways:
+    print("Reusing gateways "+gateway_name)
   else:
-    print("Creating gateway "+DEFAULT_NAME)
+    print("Creating gateway "+gateway_name)
     ig = ec2.create_internet_gateway()
     ig.attach_to_vpc(VpcId=vpc.id)
-    ig.create_tags(Tags=u.make_name(DEFAULT_NAME))
+    ig.create_tags(Tags=u.create_name_tags(gateway_name))
 
     # check that attachment succeeded
     # TODO: sometimes get
     # AssertionError: vpc vpc-33d0804b is in state None
 
-    attach_state = u.get1(ig.attachments, State=-1, VpcId=vpc.id)
+    attach_state = u.extract_attr_for_match(ig.attachments, State=-1, VpcId=vpc.id)
     assert attach_state == 'available', "vpc %s is in state %s"%(vpc.id,
                                                                  attach_state)
-    
-    
+
     route_table = vpc.create_route_table()
-    route_table.create_tags(Tags=u.make_name(ROUTE_TABLE_NAME))
+    route_table_name = u.get_route_table_name()
+    route_table.create_tags(Tags=u.create_name_tags(route_table_name))
 
     dest_cidr = '0.0.0.0/0'
     route = route_table.create_route(
@@ -121,23 +113,24 @@ def network_setup():
       print("Creating subnet %s in zone %s"%(cidr_block, zone))
       subnet = vpc.create_subnet(CidrBlock=cidr_block,
                                  AvailabilityZone=zone)
-      subnet.create_tags(Tags=[{'Key':'Name','Value':f'{VPC_NAME}-subnet'}, {'Key':'Region','Value':zone}])
+      # todo(y): replace with u.create_name_tags
+      subnet.create_tags(Tags=[{'Key': 'Name','Value': f'{vpc_name}-subnet'}, {'Key':'Region','Value':zone}])
       u.wait_until_available(subnet)
       route_table.associate_with_subnet(SubnetId=subnet.id)
 
   # Creates security group if necessary
   existing_security_groups = u.get_security_group_dict()
-  if SECURITY_GROUP_NAME in existing_security_groups:
-    print("Reusing security group "+SECURITY_GROUP_NAME)
-    security_group = existing_security_groups[SECURITY_GROUP_NAME]
+  security_group_name = u.get_security_group_name()
+  if security_group_name in existing_security_groups:
+    print("Reusing security group "+security_group_name)
+    security_group = existing_security_groups[security_group_name]
   else:
-    print("Creating security group "+SECURITY_GROUP_NAME)
+    print("Creating security group "+security_group_name)
     security_group = ec2.create_security_group(
-      GroupName=SECURITY_GROUP_NAME, Description=SECURITY_GROUP_NAME,
+      GroupName=security_group_name, Description=security_group_name,
       VpcId=vpc.id)
 
-    security_group.create_tags(Tags=[{"Key": "Name",
-                                      "Value": SECURITY_GROUP_NAME}])
+    security_group.create_tags(Tags=u.create_name_tags(security_group_name))
 
     # allow ICMP access for public ping
     security_group.authorize_ingress(
@@ -151,7 +144,7 @@ def network_setup():
     # always include SSH port which is required for basic functionality
     assert 22 in PUBLIC_TCP_RANGES, "Must enable SSH access"
     for port in PUBLIC_TCP_RANGES:
-      if u.is_list_or_tuple(port):
+      if u.is_iterable(port):
         assert len(port) == 2
         from_port, to_port = port
       else:
@@ -164,7 +157,7 @@ def network_setup():
       assert u.is_good_response(response)
 
     for port in PUBLIC_UDP_RANGES:
-      if u.is_list_or_tuple(port):
+      if u.is_iterable(port):
         assert len(port) == 2
         from_port, to_port = port
       else:
@@ -221,20 +214,21 @@ def keypair_setup():
 
   os.system('mkdir -p '+u.PRIVATE_KEY_LOCATION)
   
-  keypair = u.get_keypair_dict().get(KEYPAIR_NAME, None)
+  keypair_name = u.get_keypair_name()
+  keypair = u.get_keypair_dict().get(keypair_name, None)
   keypair_fn = u.get_keypair_fn()
   if keypair:
-    print("Reusing keypair "+KEYPAIR_NAME)
+    print("Reusing keypair "+keypair_name)
     # check that local pem file exists and is readable
-    assert os.path.exists(keypair_fn), "Keypair %s exists, but corresponding .pem file %s is not found, delete keypair %s through console and run again to recreate keypair/.pem together"%(KEYPAIR_NAME, keypair_fn, KEYPAIR_NAME)
+    assert os.path.exists(keypair_fn), "Keypair %s exists, but corresponding .pem file %s is not found, delete keypair %s through console and run again to recreate keypair/.pem together"%(keypair_name, keypair_fn, keypair_name)
     keypair_contents = open(keypair_fn).read()
     assert len(keypair_contents)>0
     # todo: check that fingerprint matches keypair.key_fingerprint
   else:
-    print("Creating keypair "+KEYPAIR_NAME)
-    ec2 = u.create_ec2_resource()
+    print("Creating keypair "+keypair_name)
+    ec2 = u.get_ec2_resource()
     assert not os.path.exists(keypair_fn), "previous keypair exists, delete it with 'sudo rm %s' and also delete corresponding keypair through console"%(keypair_fn)
-    keypair = ec2.create_key_pair(KeyName=KEYPAIR_NAME)
+    keypair = ec2.create_key_pair(KeyName=keypair_name)
 
     open(keypair_fn, 'w').write(keypair.key_material)
     os.system('chmod 400 '+keypair_fn)
@@ -256,29 +250,28 @@ def placement_group_setup(group_name):
     return group
 
   print("Creating group "+group_name)
-  ec2 = u.create_ec2_resource()
+  ec2 = u.get_ec2_resource()
   group = ec2.create_placement_group(GroupName=group_name, Strategy='cluster')
   return group
 
   
 def create_resources():
-
-  region = u.get_region()
-  print("Creating %s resources in region %s"%(DEFAULT_NAME, region,))
+  print(f"Creating {u.get_prefix()} resources in region {u.get_region()}")
 
   vpc, security_group = network_setup()
-  keypair = keypair_setup()  # saves private key locally to keypair_fn
+  keypair_setup()  # saves private key locally to keypair_fn
 
   # create EFS
   efss = u.get_efs_dict()
-  efs_id = efss.get(DEFAULT_NAME, '')
+  efs_name = u.get_efs_name()
+  efs_id = efss.get(efs_name, '')
   if not efs_id:
-    print("Creating EFS "+DEFAULT_NAME)
-    efs_id = u.create_efs(DEFAULT_NAME)
+    print("Creating EFS "+efs_name)
+    efs_id = u.create_efs(efs_name)
   else:
-    print("Reusing EFS "+DEFAULT_NAME)
+    print("Reusing EFS "+efs_name)
     
-  efs_client = u.create_efs_client()
+  efs_client = u.get_efs_client()
 
   # create mount target for each subnet in the VPC
 
