@@ -7,9 +7,10 @@ from . import local_backend
 from . import backend # TODO: remove?
 
 
-def set_backend(backend_name):
+def set_backend(_backend_name):
   """Sets backend (local or aws)"""
-  global _backend
+  global _backend, backend_name
+  backend_name = _backend_name
   if backend_name == 'aws':
     _backend = aws_backend
   elif backend_name == 'local':

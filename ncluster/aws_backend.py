@@ -5,15 +5,267 @@
 import os
 import shlex
 import sys
+import threading
 import time
-
 
 from . import backend
 from . import aws_util as u
 from . import util
 from . import aws_create_resources as create_lib
 
-TMPDIR='/tmp/ncluster'  # location for temp files on launching machine
+TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
+
+
+class Task(backend.Task):
+  """AWS task is initialized with an AWS instance and handles initialization,
+  creation of SSH session, shutdown"""
+
+  def __init__(self, name, instance, *, install_script='', job=None,
+               **extra_kwargs):
+
+    self._can_run = False  # indicates that things needed for .run were created
+    self.initialize_called = False
+
+    self.name = name
+    self.instance = instance
+    self.install_script = install_script
+    self.job = job
+    self.extra_kwargs = extra_kwargs
+
+    self.public_ip = u.get_public_ip(instance)
+    self.ip = u.get_ip(instance)
+    self._linux_type = 'ubuntu'
+
+    # heuristic to tell if I'm using Amazon image name
+    # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
+    image_name = extra_kwargs.get('image_name', '').lower()
+    if 'amzn' in image_name or 'amazon' in image_name:
+      self._log('Detected Amazon Linux image')
+      self._linux_type = 'amazon'
+    self._run_counter = 0
+
+    self._local_scratch = f"{TMPDIR}/{name}"
+    self._remote_scratch = f"{TMPDIR}/{name}"
+
+    os.system('mkdir -p ' + self._local_scratch)
+
+    self._initialized_fn = f'{TMPDIR}/{self.name}.initialized'
+
+    # _current_directory tracks current directory on task machine
+    # used for uploading without specifying absolute path on target machine
+    if self._linux_type == 'ubuntu':
+      #      self._current_directory = '/home/ubuntu'
+      self.ssh_username = 'ubuntu'  # default username on task machine
+    elif self._linux_type == 'amazon':
+      #      self._current_directory = '/home/ec2-user'
+      self.ssh_username = 'ec2-user'
+
+    self.ssh_client = u.ssh_to_task(self)
+    self._setup_tmux()
+    self._run_raw('mkdir -p ' + self._remote_scratch)
+    self._mount_efs()
+
+    if self._is_initialized_fn_present():
+      self._log("reusing previous initialized state")
+    else:
+      self._log("running install script")
+
+      # bin/bash needed to make self-executable or use UserData
+      self.install_script = '#!/bin/bash\n' + self.install_script
+      self.install_script += f'\necho ok > {self._initialized_fn}\n'
+      self.file_write('install.sh', util.shell_add_echo(self.install_script))
+      self.run('bash -e install.sh')  # fail on errors
+      # TODO(y): propagate error messages printed on console to the user
+      # right now had to log into tmux to see them
+      assert self._is_initialized_fn_present()
+
+    self.connect_instructions = f"""
+ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
+tmux a
+""".strip()
+    self._log("Initialize complete")
+    self._log(self.connect_instructions)
+
+  # todo: replace with file_read
+  def _is_initialized_fn_present(self):
+    self._log("Checking for initialization status")
+    try:
+      return 'ok' in self.file_read(self._initialized_fn)
+    except Exception:
+      return False
+
+  def _setup_tmux(self):
+    self._log("Setting up tmux")
+    self._tmux_window = f"{self.name}-main:0"
+    tmux_session_name = self._tmux_window[:-2]
+
+    tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
+                f'set-option -g mouse on \; ',
+                f'new-session -s {tmux_session_name} -n 0 -d']
+
+    # hack to get around Amazon linux not having tmux
+    if self._linux_type == 'amazon':
+      self._run_raw('sudo yum install tmux -y')
+      del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
+
+    self._run_raw(f'tmux kill-session -t {tmux_session_name}')
+    self._run_raw(''.join(tmux_cmd))
+
+    self._can_run = True
+
+  def _mount_efs(self):
+    self._log("Mounting EFS")
+    region = u.get_region()
+    efs_id = u.get_efs_dict()[u.get_prefix()]
+    dns = "{efs_id}.efs.{region}.amazonaws.com".format(**locals())
+    self.run('sudo mkdir -p /efs')
+
+    # ignore error on remount (efs already mounted)
+    self.run("sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 %s:/ /efs" % (dns,),
+             ignore_errors=True)
+
+    # make sure chmod is successful, hack to fix occasional permission errors
+    self.run('sudo chmod 777 /efs')
+    while 'drwxrwxrwx' not in self._run_and_capture_output('ls -ld /efs'):
+      print(f"chmod 777 /efs didn't take, retrying in {u.RETRY_INTERVAL_SEC}")
+      time.sleep(u.RETRY_INTERVAL_SEC)
+      self.run('sudo chmod 777 /efs')
+
+  def join(self):
+    while not self._is_initialized_fn_present():
+      self._log(f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
+      time.sleep(u.RETRY_INTERVAL_SEC)
+
+  def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
+    """Uploads file to remote instance. If location not specified, dumps it
+    into default directory."""
+
+    self._log('uploading ' + local_fn)
+    sftp = self.ssh_client.open_sftp()
+
+    if remote_fn is None:
+      remote_fn = os.path.basename(local_fn)
+    if dont_overwrite and self.file_exists(remote_fn):
+      self._log("Remote file %s exists, skipping" % (remote_fn,))
+      return
+
+    if os.path.isdir(local_fn):
+      u._put_dir(sftp, local_fn, remote_fn)
+    else:
+      assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
+      sftp.put(local_fn, remote_fn)
+
+  def download(self, remote_fn, local_fn=None):
+    self._log("downloading %s" % remote_fn)
+    sftp = self.ssh_client.open_sftp()
+    if local_fn is None:
+      local_fn = os.path.basename(remote_fn)
+      self._log("downloading %s to %s" % (remote_fn, local_fn))
+    sftp.get(remote_fn, local_fn)
+
+  def file_exists(self, remote_fn):
+    stdout, stderr = self._run_raw('stat ' + remote_fn)
+    return 'No such file' not in stdout
+
+  def file_write(self, remote_fn, contents):
+    tmp_fn = self._local_scratch + '/' + str(util.now_micros())
+    open(tmp_fn, 'w').write(contents)
+    self.upload(tmp_fn, remote_fn)
+
+  def file_read(self, remote_fn):
+    tmp_fn = self._local_scratch + '/' + str(util.now_micros())
+    self.download(remote_fn, tmp_fn)
+    return open(tmp_fn).read()
+
+  def _run_raw(self, cmd):
+    """Runs given cmd in the task using current SSH session, returns
+    stdout/stderr as strings. Because it blocks until cmd is done, use it for
+    short cmds. Silently ignores failing commands.
+
+    This is a barebones method to be used during initialization that have
+    minimal dependencies (no tmux)
+    :param cmd: command to run
+    :return: stdour and stderr
+    """
+    #    self._log("run_ssh: %s"%(cmd,))
+
+    # TODO(y), transition to SSHClient and assert fail on bad error codes
+    # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
+    stdin, stdout, stderr = self.ssh_client.exec_command(cmd, get_pty=True)
+    stdout_str = stdout.read().decode()
+    stderr_str = stderr.read().decode()
+    # TODO: use shell return status to see if it failed
+    if 'command not found' in stdout_str or 'command not found' in stderr_str:
+      self._log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
+      assert False, "run_ssh command failed"
+    return stdout_str, stderr_str
+
+  def _run_and_capture_output(self, cmd, async=False, ignore_errors=False):
+    # TODO: maybe piping is ok, check
+    assert '|' not in cmd, "don't support piping (since we append piping here)"
+
+    ts = str(util.now_micros())
+    cmd_stdout_fn = self._remote_scratch + '/' + str(self._run_counter) + '.' + ts + '.out'
+    cmd = f'{cmd} | tee {cmd_stdout_fn}'
+    self.run(cmd, async, ignore_errors)
+    return self.file_read(cmd_stdout_fn)
+
+  def run(self, cmd, async=False, ignore_errors=False,
+          max_wait_sec=365 * 24 * 3600, check_interval=0.5):
+    """Runs command in tmux session."""
+
+    assert self._can_run, ".run command is not yet available"
+    self._run_counter += 1
+
+    cmd: str = cmd.strip()
+    if cmd.startswith('#'):  # ignore empty/commented out lines
+      return
+
+    self._log("tmux> %s", cmd)
+
+    # locking to wait for command to finish
+    ts = str(util.now_micros())
+    cmd_fn_out = self._remote_scratch + '/' + str(self._run_counter) + '.' + ts + '.out'
+
+    cmd = util.shell_strip_comment(cmd)
+    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+
+    # modify command to dump shell success status into file
+    modified_cmd = '%s; echo $? > %s' % (cmd, cmd_fn_out)
+    modified_cmd = shlex.quote(modified_cmd)
+    tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
+    self._run_raw(tmux_cmd)
+    if async:
+      return
+
+    # wait until command finishes
+    start_time = time.time()
+
+    while True:
+      if time.time() - start_time > max_wait_sec:
+        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, cmd)
+      if not self.file_exists(cmd_fn_out):
+        self._log("waiting for %s" % (cmd,))
+        time.sleep(check_interval)
+        continue
+
+      contents = self.file_read(cmd_fn_out)
+      # if empty wait a bit to allow for race condition
+      if len(contents) == 0:
+        time.sleep(check_interval)
+        contents = self.file_read(cmd_fn_out)
+
+      contents = contents.strip()
+      if contents != '0':
+        if not ignore_errors:
+          assert False, "Command %s returned status %s" % (cmd, contents)
+        else:
+          self._log("Warning: command %s returned status %s" % (cmd, contents))
+      break
+
+
+class Job(backend.Job):
+  pass
 
 
 def maybe_start_instance(instance):
@@ -29,6 +281,7 @@ def maybe_start_instance(instance):
       time.sleep(10)
 
 
+# TODO: call tasks without names "unnamed-123123"
 def maybe_create_resources():
   """Use heuristics to decide to possibly create resources"""
 
@@ -71,20 +324,20 @@ def set_aws_environment():
   if not current_region:
     current_region = u.get_session().region_name
     os.environ['AWS_DEFAULT_REGION'] = current_region
-    
+
   # zone not set, use first zone of the region
   if not current_zone:
-    current_zone = current_region+'a'
+    current_zone = current_region + 'a'
     os.environ['AWS_ZONE'] = current_zone
-    
+
   util.log(f"Using account {u.get_account_number()}, zone {current_zone}")
 
 
-def make_task(name=None,
-              install_script='',
-              image_name='Deep Learning AMI (Ubuntu) Version 12.0',
-              instance_type='t3.micro'):
-
+def make_task(name: str = None,
+              install_script: str = '',
+              # image_name='Deep Learning AMI (Ubuntu) Version 12.0',
+              image_name: str = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2',
+              instance_type: str = 't3.micro') -> Task:
   maybe_create_resources()
   set_aws_environment()
 
@@ -92,13 +345,13 @@ def make_task(name=None,
     name = f"{u.get_prefix()}-{util.now_micros()}"
   instance = u.lookup_instance(name)  # todo: also add kwargs
   maybe_start_instance(instance)
-  
+
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
   subnet = u.get_subnet()
   ec2 = u.get_ec2_resource()
-  
+
   # create the instance if not present
   if not instance:
     util.log(f"Allocating {instance_type} for task {name}")
@@ -120,7 +373,7 @@ def make_task(name=None,
                                   'AssociatePublicIpAddress': True,
                                   'Groups': [security_group.id]}]
     placement_specs = {'AvailabilityZone': u.get_zone()}
-    
+
     # if placement_group: placement_specs['GroupName'] = placement_group
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
@@ -136,270 +389,41 @@ def make_task(name=None,
     util.log(f"Allocated {len(instances)} instances")
     instance = instances[0]
 
-  task = Task(name, instance, # propagate optional args
-              install_script=install_script, 
+  task = Task(name, instance,  # propagate optional args
+              install_script=install_script,
               image_name=image_name,
               instance_type=instance_type)
   return task
 
 
-def make_job(name, num_tasks=1, **kwargs):
-  # kwags: run_name='', image_name='', install_script=''
-  #  tasks = [make_task(f'{i}.{name}', **kwargs) for i in range(num_tasks)]
-  #  return Job(tasks)
-  pass
+def make_job(name, num_tasks=0, **kwargs) -> Job:
+  assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
+  assert name.count('.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
-def make_run(name):
-  pass
+  # make tasks in parallel
+  exceptions = []
+  tasks = [None]*num_tasks
 
-#def make_run(name, **kwargs):
-#  return Run(name, **kwargs)
-
-
-class Task(backend.Task):
-  """AWS task is initialized with an AWS instance and handles initialization,
-  creation of SSH session, shutdown"""
-
-  def __init__(self, name, instance, *, install_script='', job=None,
-               **extra_kwargs):
-
-    self._can_run = False  # indicates that things needed for .run were created
-    self.initialize_called = False
-    
-    self.name = name
-    self.instance = instance
-    self.install_script = install_script
-    self.job = job
-    self.extra_kwargs = extra_kwargs
-    
-    self.public_ip = u.get_public_ip(instance)
-    self.ip = u.get_ip(instance)
-    self._linux_type = 'ubuntu'
-
-    # heuristic to tell if I'm using Amazon image name
-    # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
-    image_name = extra_kwargs.get('image_name', '').lower()
-    if 'amzn' in image_name or 'amazon' in image_name:
-      self._log('Detected Amazon Linux image')
-      self._linux_type = 'amazon'
-    self._run_counter = 0
-
-    self._local_scratch = f"{TMPDIR}/{name}"
-    self._remote_scratch = f"{TMPDIR}/{name}"
-    
-    os.system('mkdir -p '+self._local_scratch)
-
-    self._initialized_fn = f'{TMPDIR}/{self.name}.initialized'
-    
-    # _current_directory tracks current directory on task machine
-    # used for uploading without specifying absolute path on target machine
-    if self._linux_type == 'ubuntu':
-#      self._current_directory = '/home/ubuntu'
-      self.ssh_username = 'ubuntu'  # default username on task machine
-    elif self._linux_type == 'amazon':
-#      self._current_directory = '/home/ec2-user'
-      self.ssh_username = 'ec2-user'
-
-    self.ssh_client = u.ssh_to_task(self)
-    self._setup_tmux()
-    self._run_raw('mkdir -p '+self._remote_scratch)
-    self._mount_efs()
-
-    if self._is_initialized_fn_present():
-      self._log("reusing previous initialized state")
-    else:
-      self._log("running install script")
-
-      # bin/bash needed to make self-executable or use UserData
-      self.install_script = '#!/bin/bash\n' + self.install_script
-      self.install_script += f'\necho ok > {self._initialized_fn}\n'
-      self.file_write('install.sh', util.shell_add_echo(self.install_script))
-      self.run('bash -e install.sh') # fail on errors
-      # TODO(y): propagate error messages printed on console to the user
-      # right now had to log into tmux to see them
-      assert self._is_initialized_fn_present()
-
-    self.connect_instructions = f"""
-ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
-tmux a
-""".strip()
-    self._log("Initialize complete")
-    self._log(self.connect_instructions)
-    
-
-  # todo: replace with file_read
-  def _is_initialized_fn_present(self):
-    self._log("Checking for initialization status")
+  def make_task_fn(i: int):
     try:
-      return 'ok' in self.file_read(self._initialized_fn)
-    except:
-      return False
+      tasks[i] = make_task(f"{i}.{name}", **kwargs)
+    except Exception as e:
+      exceptions.append(e)
 
-  def _setup_tmux(self):
-    self._log("Setting up tmux")
-    self._tmux_window = f"{self.name}-main:0"
-    tmux_session_name = self._tmux_window[:-2]
-    
-    tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
-                f'set-option -g mouse on \; ',
-                f'new-session -s {tmux_session_name} -n 0 -d']
+  threads = [threading.Thread(name=f'make_task_{i}',
+                              target=make_task_fn, args=[i])
+             for i in range(num_tasks)]
+  for thread in threads:
+    thread.start()
+  for thread in threads:
+    thread.join()
+  if exceptions:
+    raise exceptions[0]
 
-    # hack to get around Amazon linux not having tmux
-    if self._linux_type == 'amazon':
-      self._run_raw('sudo yum install tmux -y')
-      del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
-      
-    self._run_raw(f'tmux kill-session -t {tmux_session_name}')
-    self._run_raw(''.join(tmux_cmd))
+  job = Job(name, tasks, **kwargs)
+  return job
 
-    self._can_run = True
-    
-  def _mount_efs(self):
-    self._log("Mounting EFS")
-    region = u.get_region()
-    efs_id = u.get_efs_dict()[u.get_prefix()]
-    dns = "{efs_id}.efs.{region}.amazonaws.com".format(**locals())
-    self.run('sudo mkdir -p /efs')
-    
-    # ignore error on remount (efs already mounted)
-    self.run("sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 %s:/ /efs"%(dns,), ignore_errors=True) 
 
-    # make sure chmod is successful, hack to fix occasional permission errors
-    self.run('sudo chmod 777 /efs')
-    while 'drwxrwxrwx' not in self._run_and_capture_output('ls -ld /efs'):
-      print(f"chmod 777 /efs didn't take, retrying in {u.RETRY_INTERVAL_SEC}")
-      time.sleep(u.RETRY_INTERVAL_SEC)
-      self.run('sudo chmod 777 /efs')
-
-  def join(self):
-    while not self._is_initialized_fn_present():
-      self._log(f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
-      time.sleep(u.RETRY_INTERVAL_SEC)
-
-  def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
-    """Uploads file to remote instance. If location not specified, dumps it
-    into default directory."""
-    
-    self._log('uploading '+local_fn)
-    sftp = self.ssh_client.open_sftp()
-    
-    if remote_fn is None:
-      remote_fn = os.path.basename(local_fn)
-    if dont_overwrite and self.file_exists(remote_fn):
-      self._log("Remote file %s exists, skipping"%(remote_fn,))
-      return
-
-    if os.path.isdir(local_fn):
-      u._put_dir(sftp, local_fn, remote_fn)
-    else:
-      assert os.path.isfile(local_fn), "%s is not a file"%(local_fn,)
-      sftp.put(local_fn, remote_fn)
-
-  def download(self, remote_fn, local_fn=None):
-    self._log("downloading %s"%(remote_fn))
-    sftp = self.ssh_client.open_sftp()
-    if local_fn is None:
-      local_fn = os.path.basename(remote_fn)
-      self._log("downloading %s to %s"%(remote_fn, local_fn))
-    sftp.get(remote_fn, local_fn)
-
-  def file_exists(self, remote_fn):
-    stdout, stderr = self._run_raw('stat '+remote_fn)
-    return 'No such file' not in stdout
-  
-  def file_write(self, remote_fn, contents):
-    tmp_fn = self._local_scratch+'/'+str(util.now_micros())
-    open(tmp_fn, 'w').write(contents)
-    self.upload(tmp_fn, remote_fn)
-
-  def file_read(self, remote_fn):
-    tmp_fn = self._local_scratch+'/'+str(util.now_micros())
-    self.download(remote_fn, tmp_fn)
-    return open(tmp_fn).read()
-
-  def _run_raw(self, cmd):
-    """Runs given cmd in the task using current SSH session, returns
-    stdout/stderr as strings. Because it blocks until cmd is done, use it for
-    short cmds. Silently ignores failing commands.
-   
-    This is a barebones method to be used during initialization that have
-    minimal dependencies (no tmux)
-    :param cmd: command to run
-    :return: stdour and stderr
-    """
-    #    self._log("run_ssh: %s"%(cmd,))
-    
-    # TODO(y), transition to SSHClient and assert fail on bad error codes
-    # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
-    stdin, stdout, stderr = self.ssh_client.exec_command(cmd, get_pty=True)
-    stdout_str = stdout.read().decode()
-    stderr_str = stderr.read().decode()
-    # TODO: use shell return status to see if it failed
-    if 'command not found' in stdout_str or 'command not found' in stderr_str:
-      self._log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
-      assert False, "run_ssh command failed"
-    return stdout_str, stderr_str
-
-  def _run_and_capture_output(self, cmd, async=False, ignore_errors=False):
-    # TODO: maybe piping is ok, check
-    assert '|' not in cmd, "don't support piping (since we append piping here)"
-    
-    ts = str(util.now_micros())
-    cmd_stdout_fn = self._remote_scratch+'/'+str(self._run_counter)+'.'+ts+'.out'
-    cmd = f'{cmd} | tee {cmd_stdout_fn}'
-    self.run(cmd, async, ignore_errors)
-    return self.file_read(cmd_stdout_fn)
-
-  def run(self, cmd, async=False, ignore_errors=False,
-          max_wait_sec=365*24*3600, check_interval=0.5):
-    """Runs command in tmux session."""
-
-    assert self._can_run, ".run command is not yet available"
-    self._run_counter += 1
-
-    cmd: str = cmd.strip()
-    if cmd.startswith('#'):  # ignore empty/commented out lines
-      return
-
-    self._log("tmux> %s", cmd)
-
-    # locking to wait for command to finish
-    ts = str(util.now_micros())
-    cmd_fn_out = self._remote_scratch+'/'+str(self._run_counter)+'.'+ts+'.out'
-
-    cmd = util.shell_strip_comment(cmd)
-    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
-
-    # modify command to dump shell success status into file
-    modified_cmd = '%s; echo $? > %s' % (cmd, cmd_fn_out)
-    modified_cmd = shlex.quote(modified_cmd)
-    tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
-    self._run_raw(tmux_cmd)
-    if async:
-      return
-
-    # wait until command finishes
-    start_time = time.time()
-
-    while True:
-      if time.time() - start_time > max_wait_sec:
-        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, cmd)
-      if not self.file_exists(cmd_fn_out):
-        self._log("waiting for %s"%(cmd,))
-        time.sleep(check_interval)
-        continue
-    
-      contents = self.file_read(cmd_fn_out)
-      # if empty wait a bit to allow for race condition
-      if len(contents) == 0:
-        time.sleep(check_interval)
-        contents = self.file_read(cmd_fn_out)
-
-      contents = contents.strip()
-      if contents != '0':
-        if not ignore_errors:
-          assert False, "Command %s returned status %s"%(cmd, contents)
-        else:
-          self._log("Warning: command %s returned status %s"%(cmd, contents))
-      break
+# def make_run(name, **kwargs):
+#  return Run(name, **kwargs)

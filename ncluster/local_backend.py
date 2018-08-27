@@ -1,6 +1,5 @@
 # Local implementation of backend.py using separate tmux sessions for jobs
 
-import datetime
 import os
 import subprocess
 import shlex
@@ -19,60 +18,10 @@ TASKDIR_PREFIX = '/tmp/tasklogs'
 
 # todo: tmux session names are backwards from AWS job names (runname-jobname)
 # TODO: add kwargs so that tmux backend can be drop-in replacement
-def make_run(name, install_script='', **kwargs):
-  if kwargs:
-    print("Warning, unused kwargs", kwargs)
-  return Run(name, install_script)
-
-
-class Run(backend.Run):
-  def __init__(self, name, install_script=''):
-    self.name = name
-    self.install_script = install_script
-    self.jobs = []
-    self.logdir = f'{backend.LOGDIR_PREFIX}/{self.name}'
-
-  # TODO: rename job_name to role_name
-  def make_job(self, job_name, num_tasks=1, install_script='', **kwargs):
-    assert num_tasks >= 0
-
-    if kwargs:
-      print("Warning, unused kwargs", kwargs)
-
-    # TODO, remove mandatory delete and make separate method for killing?
-    tmux_name = self.name + '-' + job_name  # tmux can't use . in name
-    os.system('tmux kill-session -t ' + tmux_name)
-    tmux_windows = []
-    self.log("Creating %s with %s" % (tmux_name, num_tasks))
-    if num_tasks > 0:
-      os.system('tmux new-session -s %s -n %d -d' % (tmux_name, 0))
-      tmux_windows.append(tmux_name + ":" + str(0))
-    for task_id in range(1, num_tasks):
-      os.system("tmux new-window -t {} -n {}".format(tmux_name, task_id))
-      tmux_windows.append(tmux_name + ":" + str(task_id))
-
-    if not install_script:
-      install_script = self.install_script
-    job = Job(self, job_name, tmux_windows, install_script=install_script)
-    self.jobs.append(job)
-    return job
-
-  def setup_logdir(self):
-    if os.path.exists(self.logdir):
-      datestr = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-      new_logdir = f'{backend.LOGDIR_PREFIX}/{self.name}.{datestr}'
-      self.log(f'Warning, logdir {self.logdir} exists, deduping to {new_logdir}')
-      self.logdir = new_logdir
-    os.makedirs(self.logdir)
 
 
 class Job(backend.Job):
-  def __init__(self, run, name, tmux_windows, install_script=''):
-    self._run = run
-    self.name = name
-    self.tasks = []
-    for task_id, tmux_window in enumerate(tmux_windows):
-      self.tasks.append(Task(tmux_window, self, install_script=install_script))
+  pass
 
 
 # TODO: rename extra_kwargs to kwargs everywhere
@@ -81,12 +30,12 @@ class Task(backend.Task):
   from job name, and window names are task ids."""
 
   def __init__(self, name, tmux_window, *, install_script='', job=None,
-               **extra_kwargs):
+               **kwargs):
     self.tmux_window = tmux_window  # TODO: rename tmux_window to window?
     self.name = name
     self.install_script = install_script
     self.job = job
-    self.extra_kwargs = extra_kwargs
+    self.kwargs = kwargs
 
     self.public_ip = socket.gethostbyname(socket.gethostname())
     self.ip = self.public_ip
@@ -108,17 +57,6 @@ class Task(backend.Task):
     for line in install_script.split('\n'):
       self.run(line)
 
-  def _wait_for_file(self, fn, max_wait_sec=600, check_interval=0.02):
-    start_time = time.time()
-    while True:
-      if time.time() - start_time > max_wait_sec:
-        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, fn)
-      if not self.file_exists(fn):
-        time.sleep(check_interval)
-        continue
-      else:
-        break
-
   def run(self, cmd, async=False, ignore_errors=False, **kwargs):
     self._run_counter += 1
     cmd = cmd.strip()
@@ -139,7 +77,7 @@ class Task(backend.Task):
 
     tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
-    if not async:
+    if async:
       return
 
     # TODO: dedup this with file waiting logic in aws_backend
@@ -156,18 +94,6 @@ class Task(backend.Task):
         assert False, "Command %s returned status %s" % (cmd, contents)
       else:
         self._log("Warning: command %s returned status %s" % (cmd, contents))
-
-  def _run_and_capture_output(self, cmd, async=False, ignore_errors=False):
-    cmd_stdout_fn = f'{self._scratch}/{self._run_counter}.stdout'
-    assert '|' not in cmd, "don't support piping (since we append piping here)"
-    cmd = f'{cmd} | tee {cmd_stdout_fn}'
-    self.run(cmd, async, ignore_errors)
-    return self.file_read(cmd_stdout_fn)
-
-  def _run_raw(self, cmd):
-    """Runs command directly, skipping tmux interface"""
-    #    self.log(cmd)
-    os.system(cmd)
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     #    self.log("uploading %s to %s"%(source_fn, target_fn))
@@ -208,21 +134,54 @@ class Task(backend.Task):
     for line in iter(p.stdout.readline, ''):
       sys.stdout.write(line.decode('ascii', errors='ignore'))
 
+  def _wait_for_file(self, fn, max_wait_sec=600, check_interval=0.02):
+    print("Waiting for file", fn)
+    start_time = time.time()
+    while True:
+      if time.time() - start_time > max_wait_sec:
+        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, fn)
+      if not self.file_exists(fn):
+        time.sleep(check_interval)
+        continue
+      else:
+        break
+
+  def _run_and_capture_output(self, cmd, async=False, ignore_errors=False):
+    cmd_stdout_fn = f'{self._scratch}/{self._run_counter}.stdout'
+    assert '|' not in cmd, "don't support piping (since we append piping here)"
+    cmd = f'{cmd} | tee {cmd_stdout_fn}'
+    self.run(cmd, async, ignore_errors)
+    return self.file_read(cmd_stdout_fn)
+
+  def _run_raw(self, cmd):
+    """Runs command directly, skipping tmux interface"""
+    os.system(cmd)
+
 
 def make_task(name=None,
-              install_script='',
               **kwargs) -> Task:
   if name is None:
     name = f"{util.now_micros()}"
-    
-  assert '.' not in name, "tmux can't use . in session name"
-  tmux_window = name + ':0'
+
+  # tmux can't use . for session names
+  tmux_window = name.replace('.', '-') + ':0'
   tmux_session = tmux_window[:-2]
   util.log(f'killing session {tmux_session}')
   os.system(f'tmux kill-session -t {tmux_session}')
   os.system(f'tmux new-session -s {tmux_session} -n 0 -d')
 
   task = Task(name, tmux_window,  # propagate optional args
-              install_script=install_script,
               **kwargs)
   return task
+
+
+def make_job(name=None,
+             num_tasks=0,
+             **kwargs
+             ) -> Job:
+  assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
+
+  assert name.count('.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
+  tasks = [make_task(f"{i}.{name}") for i in range(num_tasks)]
+  job = Job(name, tasks, **kwargs)
+  return job
