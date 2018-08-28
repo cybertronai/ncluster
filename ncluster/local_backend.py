@@ -96,7 +96,20 @@ class Task(backend.Task):
         self._log("Warning: command %s returned status %s" % (cmd, contents))
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
-    #    self.log("uploading %s to %s"%(source_fn, target_fn))
+    """Uploads file to remote instance. If location not specified, dumps it
+    into default directory."""
+
+    self._log('uploading ' + local_fn)
+
+    if remote_fn is None:
+      remote_fn = os.path.basename(local_fn)
+    if dont_overwrite and self.file_exists(remote_fn):
+      self._log("Remote file %s exists, skipping" % (remote_fn,))
+      return
+
+    if os.path.isdir(local_fn):
+      raise NotImplemented()
+
     local_fn_full = os.path.abspath(local_fn)
     self.run("cp -R %s %s" % (local_fn_full, remote_fn))
 
