@@ -43,5 +43,5 @@ def join(things_to_join):
 if 'NCLUSTER_BACKEND' in os.environ:
   set_backend(os.environ['NCLUSTER_BACKEND'])
 else:
-  set_backend('aws')
+  set_backend('local')
   
