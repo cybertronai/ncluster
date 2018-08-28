@@ -172,7 +172,12 @@ def get_prefix():
 
 
 def get_account_number():
-  return str(boto3.client('sts').get_caller_identity()['Account'])
+  while True:
+    try:
+      return str(boto3.client('sts').get_caller_identity()['Account'])
+    except Exception as e:
+      print(f'Exception in get_account_number {e}')
+      time.sleep(RETRY_INTERVAL_SEC)
 
 
 def get_region():
