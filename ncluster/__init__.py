@@ -19,6 +19,10 @@ def set_backend(_backend_name):
     assert False, f"Unknown backend {backend_name}"
 
 
+def get_backend():
+  return backend_name
+
+
 def make_run(name='', **kwargs):
   return _backend.Run(name, **kwargs)
 
