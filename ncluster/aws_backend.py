@@ -336,7 +336,7 @@ def set_aws_environment():
 def make_task(name: str = None,
               install_script: str = '',
               # image_name='Deep Learning AMI (Ubuntu) Version 12.0',
-              image_name: str = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2',
+              image_name: str = '',
               instance_type: str = 't3.micro') -> Task:
   maybe_create_resources()
   set_aws_environment()
@@ -346,6 +346,10 @@ def make_task(name: str = None,
   instance = u.lookup_instance(name)  # todo: also add kwargs
   maybe_start_instance(instance)
 
+  if not image_name:
+    image_name = os.environ.get('NCLUSTER_IMAGE',
+                                'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2')
+    util.log("Using image ", image_name)
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
