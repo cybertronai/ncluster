@@ -6,7 +6,7 @@ TensorFlow distributed benchmark. Create sender/receiver tasks and add arrays fr
 
 To run locally:
 unset NCLUSTER_BACKEND
-python tf_adder.py
+./tf_adder.py
 tmux a -t 0
 
 Should see something like this
@@ -28,7 +28,7 @@ Should see something like this
 To run on AWS
 export NCLUSTER_BACKEND=aws
 export NCLUSTER_IMAGE="Deep Learning AMI (Amazon Linux) Version 13.0"
-python tf_adder.py
+./tf_adder.py
 nconnect 0.tf_adder
 
 Should see something like this with t3.large instances
@@ -61,8 +61,8 @@ parser.add_argument("--sender-ip", default='127.0.0.1')
 parser.add_argument("--receiver-ip", default='127.0.0.1')
 args = parser.parse_args()
 
-cluster_spec = {'chief': [args.sender_ip+':32300'],
-                'receiver': [args.receiver_ip+':32301']}
+cluster_spec = {'chief': [args.sender_ip + ':32300'],
+                'receiver': [args.receiver_ip + ':32301']}
 
 
 def _launch_server(role):
@@ -71,8 +71,8 @@ def _launch_server(role):
      'task': {'type': role, 'index': 0}})
   config = tf.estimator.RunConfig()
   return tf.train.Server(config.cluster_spec,
-                           job_name=config.task_type,
-                           task_index=config.task_id)
+                         job_name=config.task_type,
+                         task_index=config.task_id)
 
 
 def run_launcher():
@@ -84,7 +84,7 @@ def run_launcher():
   if ncluster.get_backend() == 'aws':
     # on AWS probably are running in DLAMI, switch into TF-enabled env
     job.run('source activate tensorflow_p36')
-    
+
   ip_config = f'--sender-ip={sender.ip} --receiver-ip={receiver.ip}'
   job.tasks[1].run(f'python tf_adder.py --role=receiver {ip_config}', async=True)
   job.tasks[0].run(f'python tf_adder.py --role=sender {ip_config}')
@@ -93,6 +93,7 @@ def run_launcher():
 def run_receiver():
   server = _launch_server('receiver')
   time.sleep(365 * 24 * 3600)
+  del server
 
 
 def run_sender():
@@ -114,12 +115,11 @@ def run_sender():
     sess.run(add_op)
     elapsed_time = time.time() - start_time
     rate = args.data_mb / elapsed_time
-    print('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' %(i,
-                                                              args.iters,
-                                                              args.data_mb,
-                                                              elapsed_time*1000,
-                                                              rate))
-
+    print('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (i,
+                                                               args.iters,
+                                                               args.data_mb,
+                                                               elapsed_time * 1000,
+                                                               rate))
 
 
 def main():
