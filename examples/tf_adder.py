@@ -9,11 +9,42 @@ unset NCLUSTER_BACKEND
 python tf_adder.py
 tmux a -t 0
 
+Should see something like this
+```
+088/100 added 128 MBs in 123.2 ms: 1038.89 MB/second
+089/100 added 128 MBs in 114.9 ms: 1114.36 MB/second
+090/100 added 128 MBs in 113.4 ms: 1128.61 MB/second
+091/100 added 128 MBs in 113.4 ms: 1128.60 MB/second
+092/100 added 128 MBs in 118.3 ms: 1082.34 MB/second
+093/100 added 128 MBs in 111.7 ms: 1145.50 MB/second
+094/100 added 128 MBs in 113.4 ms: 1128.63 MB/second
+095/100 added 128 MBs in 113.6 ms: 1126.71 MB/second
+096/100 added 128 MBs in 115.5 ms: 1108.68 MB/second
+097/100 added 128 MBs in 114.3 ms: 1119.58 MB/second
+098/100 added 128 MBs in 114.5 ms: 1117.51 MB/second
+```
+
+
 To run on AWS
 export NCLUSTER_BACKEND=aws
 export NCLUSTER_IMAGE="Deep Learning AMI (Amazon Linux) Version 13.0"
 python tf_adder.py
 nconnect 0.tf_adder
+
+Should see something like this with t3.large instances
+```
+087/100 added 128 MBs in 254.1 ms: 503.67 MB/second
+088/100 added 128 MBs in 252.8 ms: 506.42 MB/second
+089/100 added 128 MBs in 253.8 ms: 504.27 MB/second
+090/100 added 128 MBs in 252.6 ms: 506.63 MB/second
+091/100 added 128 MBs in 255.0 ms: 501.92 MB/second
+092/100 added 128 MBs in 253.3 ms: 505.30 MB/second
+093/100 added 128 MBs in 254.0 ms: 503.99 MB/second
+094/100 added 128 MBs in 253.9 ms: 504.04 MB/second
+095/100 added 128 MBs in 253.5 ms: 504.99 MB/second
+096/100 added 128 MBs in 253.8 ms: 504.35 MB/second
+```
+
 """
 
 import argparse
