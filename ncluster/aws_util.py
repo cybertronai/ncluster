@@ -176,7 +176,7 @@ def get_account_number():
     try:
       return str(boto3.client('sts').get_caller_identity()['Account'])
     except Exception as e:
-      print(f'Exception in get_account_number {e}')
+      print(f'Exception in get_account_number {e}, retrying')
       time.sleep(RETRY_INTERVAL_SEC)
 
 
