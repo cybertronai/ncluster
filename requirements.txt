@@ -1,3 +1,4 @@
+tensorflow
 boto3
 paramiko
 portpicker
