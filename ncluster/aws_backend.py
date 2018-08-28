@@ -96,7 +96,8 @@ tmux a
 
   def _setup_tmux(self):
     self._log("Setting up tmux")
-    self._tmux_window = f"{self.name}-main:0"
+    
+    self._tmux_window = f"{self.name}-main:0".replace('.', '-')
     tmux_session_name = self._tmux_window[:-2]
 
     tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
@@ -149,7 +150,6 @@ tmux a
       self._log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
-    if os.path.isdir(local_fn):
       u._put_dir(sftp, local_fn, remote_fn)
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
