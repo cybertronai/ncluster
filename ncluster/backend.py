@@ -1,14 +1,16 @@
 """Interface for job launching backend."""
 # Job launcher Python API: https://docs.google.com/document/d/1yTkb4IPJXOUaEWksQPCH7q0sjqHgBf3f70cWzfoFboc/edit
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
-
 import threading
 import time
+from typing import List
+
+from . import util
 
 # aws_backend.py
 # local_backend.py
 
-LOGDIR_PREFIX = '/efs/runs'
+LOGDIR_ROOT: str = None  # location of logdir for this backend
 
 """
 backend = aws_backend # alternatively, backend=tmux_backend to launch jobs locally in separate tmux sessions
@@ -31,107 +33,19 @@ To reconnect to existing job:
 """
 
 
-def _set_global_logdir_prefix(logdir_prefix):
-  """Globally changes logdir prefix across all runs."""
-  global LOGDIR_PREFIX
-  LOGDIR_PREFIX = logdir_prefix
+def _set_global_logdir_root(logdir_root):
+  """Globally changes logdir root for all runs."""
+  global LOGDIR_ROOT
+  LOGDIR_ROOT = logdir_root
 
 
-def _current_timestamp():
+def _current_timestamp() -> str:
   # timestamp format from https://github.com/tensorflow/tensorflow/blob/155b45698a40a12d4fef4701275ecce07c3bb01a/tensorflow/core/platform/default/logging.cc#L80
   current_seconds = time.time()
   remainder_micros = int(1e6 * (current_seconds - int(current_seconds)))
   time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_seconds))
   full_time_str = "%s.%06d" % (time_str, remainder_micros)
   return full_time_str
-
-
-class Run:
-  """Run is a collection of jobs that share statistics. IE, training run will contain gradient worker job,
-  parameter server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store
-  checkpoints and event files. """
-
-  def __init__(self, name, install_script=None):
-    """Creates a run. If install_script is specified, it's used as default
-    install_script for all jobs (can be overridden by Job constructor)"""
-    self.jobs = []
-    self.name = ''
-    raise NotImplementedError()
-
-  def make_job(self, name, num_tasks=1, install_script=None, **kwargs):
-    """Creates job in the given run. If install_script is None, uses
-    install_script associated with the Run."""
-    raise NotImplementedError()
-
-  def run(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-
-    for job in self.jobs:
-      job.run(*args, **kwargs)
-
-  def _run_and_capture_output(self, *args, **kwargs):
-    """Runs command on every first job in the run, returns stdout."""
-
-    return self.jobs[0]._run_and_capture_output(*args, **kwargs)
-
-  def _run_raw(self, *args, **kwargs):
-    """_run_raw on every job in the run."""
-
-    for job in self.jobs:
-      job._run_raw(*args, **kwargs)
-
-  def upload(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-
-    for job in self.jobs:
-      job.upload(*args, **kwargs)
-
-  def log(self, message, *args):
-    """Log to client console."""
-    ts = _current_timestamp()
-    if args:
-      message = message % args
-
-    print("%s %s: %s" % (ts, self.name, message))
-
-
-class Job:
-  def __init__(self, name, tasks, **kwargs):
-    self.name = name
-    self.tasks = tasks
-    self.kwargs = kwargs
-    for task in tasks:
-      task.job = self
-
-  def _async_wrapper(self, method, *args, **kwargs):
-    """Runs given method on every task in the job. Blocks until all tasks finish. Propagates exception from first
-    failed task."""
-
-    exceptions = []
-
-    def task_run(task):
-      try:
-        getattr(task, method)(*args, **kwargs)
-      except Exception as e:
-        exceptions.append(e)
-
-    threads = [threading.Thread(name=f'task_{method}_{i}',
-                                  target=task_run, args=[t])
-                 for i, t in enumerate(self.tasks)]
-    for thread in threads: thread.start()
-    for thread in threads: thread.join()
-    if exceptions: raise exceptions[0]
-
-  def run(self, *args, **kwargs):
-    """Runs command on every task in the job in parallel, blocks until all tasks finish.
-    See Task for documentation of args/kwargs."""
-    return self._async_wrapper("run", *args,**kwargs)
-
-  def upload(self, *args, **kwargs):
-    return self._async_wrapper("upload", *args,**kwargs)
-
-  def file_write(self, *args, **kwargs):
-    return self._async_wrapper("file_write", *args,**kwargs)
 
 
 class Task:
@@ -144,9 +58,60 @@ class Task:
 
     self.public_ip = None
     self.ip = None
+    self.logdir_ = None
 
-  def run(self, cmd, async, ignore_errors):
+  @property
+  def logdir(self):
+    self.setup_logdir()  # creates logdir if necessary, stores it in associated run_.logdir_
+    return self.job.run_.logdir_
+
+  def get_logdir_root(self):
+    raise NotImplemented   # this must be overridded by children for custom backend logdir location
+
+  def is_chief(self):
+    return self.job.tasks.index(self) == 0 and self.job.is_chief()
+
+  def setup_logdir(self):
+    """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
+    """
+    if not self.is_chief():
+      return
+    if self.job.run_.logdir_:
+      return  # already created logdir
+
+    self._log("Creating logdir")
+
+    # logdir root can differ between backends, hence get it from the actual backend being used
+    logdir_root = self.get_logdir_root()
+    find_command = f'find {logdir_root} -type d -maxdepth 1'
+
+    # TODO: get rid of find warning
+    #    find: warning: you have specified the -maxdepth option after a non-option argument -type, but options are not positional (-maxdepth affects tests specified befo
+    # re it as well as those specified after it).  Please specify options before other
+    # arguments.
+
+    logdir_ls = self.run2(find_command)
+    logdir = f"{logdir_root}/{self.name}"
+
+    # TODO, simplify this logic, just get the largest logdir encountered, then do +1
+    counter = 0
+    while logdir in logdir_ls:
+      counter += 1
+      lll = '%s.%02d' % (f"{logdir_root}/{self.name}", counter)
+      self._log(f'Warning, logdir {logdir} exists, deduping to {lll}')
+      logdir = lll
+    self.run(f'mkdir -p {logdir}')
+    self.job.run_.logdir_ = logdir
+
+  def run(self, cmd, async=False, ignore_errors=False):
     """Runs command on given task."""
+    raise NotImplementedError()
+
+  def run2(self, cmd, async=False, ignore_errors=False):
+    raise NotImplemented()
+
+  def _run_raw(self, cmd):
+    """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
     raise NotImplementedError()
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
@@ -170,11 +135,6 @@ class Task:
     """Return true if file exists in task current directory."""
     raise NotImplementedError()
 
-
-  def _run_raw(self, cmd):
-    """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
-    raise NotImplementedError()
-
   def _log(self, message, *args):
     """Log to launcher console."""
     if args:
@@ -183,19 +143,150 @@ class Task:
     print(f"{_current_timestamp()} {self.name}: {message}")
 
 
+class Job:
+  name: str
+  tasks: List[Task]
+
+  #  run_: Run
+
+  def __init__(self, name: str, run, tasks: List[Task] = None, **kwargs):
+    if tasks is None:
+      tasks = []
+    self.name = name
+    self.run_ = run
+    self.tasks = tasks
+    self.kwargs = kwargs
+    # TODO: maybe backlinking is not needed
+    for task in tasks:
+      task.job = self
+
+  @property
+  def logdir(self):
+    return self.tasks[0].logdir
+
+  def is_chief(self):
+    """Return true if this task is first task in the Run"""
+    return self.run_.jobs.index(self) == 0
+
+  def _async_wrapper(self, method, *args, **kwargs):
+    """Runs given method on every task in the job. Blocks until all tasks finish. Propagates exception from first
+    failed task."""
+
+    exceptions = []
+
+    def task_run(task):
+      try:
+        getattr(task, method)(*args, **kwargs)
+      except Exception as e:
+        exceptions.append(e)
+
+    threads = [threading.Thread(name=f'task_{method}_{i}',
+                                target=task_run, args=[t])
+               for i, t in enumerate(self.tasks)]
+    for thread in threads:
+      thread.start()
+    for thread in threads:
+      thread.join()
+    if exceptions:
+      raise exceptions[0]
+
+  def run(self, *args, **kwargs):
+    """Runs command on every task in the job in parallel, blocks until all tasks finish.
+    See Task for documentation of args/kwargs."""
+    return self._async_wrapper("run", *args, **kwargs)
+
+  def run2(self, *args, **kwargs):
+    """Runs command on every task in the job in parallel, blocks until all tasks finish.
+    See Task for documentation of args/kwargs."""
+    return self._async_wrapper("run2", *args, **kwargs)
+
+  def upload(self, *args, **kwargs):
+    return self._async_wrapper("upload", *args, **kwargs)
+
+  def file_write(self, *args, **kwargs):
+    return self._async_wrapper("file_write", *args, **kwargs)
+
+  def _run_raw(self, *args, **kwargs):
+    return self._async_wrapper("_run_raw", *args, **kwargs)
+
+
+class Run:
+  """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
+  server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
+  event files. """
+  jobs: List[Job]
+
+  def __init__(self, name=None, jobs=None, **kwargs):
+    """Creates a run. If install_script is specified, it's used as default
+    install_script for all jobs (can be overridden by Job constructor)"""
+
+    if not name:
+      name = f'unnamed.{name}.{util.now_micros()}'
+
+    if jobs is None:
+      jobs = []
+    self.name = name
+    self.jobs = jobs
+    self.kwargs = kwargs
+
+    self.logdir_ = None
+
+    # TODO: this back-linking logic may be unneeded
+    for job in jobs:
+      job.run_ = self
+
+  @property
+  def logdir(self):
+    assert self.jobs
+    return self.jobs[0].logdir
+
+  def make_job(self, name='', **kwargs):
+    return Job(name, self, **kwargs)
+
+  # TODO: currently this is synchronous, use async wrapper like in Job to parallelize methods
+  def run(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+
+    for job in self.jobs:
+      job.run(*args, **kwargs)
+
+  def run2(self, *args, **kwargs):
+    """Runs command on every first job in the run, returns stdout."""
+    for job in self.jobs:
+      job.run2(*args, **kwargs)
+
+  def _run_raw(self, *args, **kwargs):
+    """_run_raw on every job in the run."""
+
+    for job in self.jobs:
+      job._run_raw(*args, **kwargs)
+
+  def upload(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+    for job in self.jobs:
+      job.upload(*args, **kwargs)
+
+  # def log(self, message, *args):
+  #   """Log to client console."""
+  #   ts = _current_timestamp()
+  #   if args:
+  #     message = message % args
+  #
+  #   print("%s %s: %s" % (ts, self.name, message))
+
+
 # Use factory methods task=create_task instead of relying solely on constructors task=Task() because underlying hardware resources may be reused between instantiations
 # For instance, one may create a Task initialized with an instance that was previous created for this kind of task
 # Factory method will make the decision to recreate or reuse such resource, and wrap this resource with a Task object.
 
-def make_job() -> Job:
-  pass
+def make_job(**kwargs) -> Job:
+  raise NotImplementedError()
 
 
-def make_task() -> Task:
-  pass
+def make_task(**kwargs) -> Task:
+  raise NotImplementedError()
 
 
 # todo: rename to "start_run" instead of setup_run?
-def make_run(name) -> Run:
-  """Sets up "run" with given name, such as "training run"."""
+def make_run(**kwargs) -> Run:
   raise NotImplementedError()

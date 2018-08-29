@@ -1,27 +1,22 @@
 # Local implementation of backend.py using separate tmux sessions for jobs
 
 import os
-import subprocess
 import shlex
+import subprocess
 import sys
-import socket
 import time
 
 from . import backend
 from . import util
 
-TASKDIR_PREFIX = '/tmp/tasklogs'
-
+TASKDIR_ROOT = '/tmp/tasklogs'
+LOGDIR_ROOT = os.environ['HOME']+'/ncluster/runs'  # use local instead of /tmp because /tmp gets wiped
 
 # TODO: use separate session for each task, for parity with AWS job launcher
 
 
 # todo: tmux session names are backwards from AWS job names (runname-jobname)
 # TODO: add kwargs so that tmux backend can be drop-in replacement
-
-
-class Job(backend.Job):
-  pass
 
 
 # TODO: rename extra_kwargs to kwargs everywhere
@@ -37,13 +32,17 @@ class Task(backend.Task):
     self.job = job
     self.kwargs = kwargs
 
-    self.public_ip = socket.gethostbyname(socket.gethostname())
+    # local servers sometimes listen only on localhost (TensorBoard), and sometimes only on
+    # externally assigned ip address from gethostbyname (Ray), use the localhost arbitrarily
+    # https://github.com/ray-project/ray/issues/1677
+    #    self.public_ip = socket.gethostbyname(socket.gethostname())
+    self.public_ip = '127.0.0.1'
     self.ip = self.public_ip
 
     self.connect_instructions = 'tmux a -t ' + self.tmux_window
 
     # task current dir
-    self.taskdir = f"{TASKDIR_PREFIX}/{name}.{util.now_micros()}"
+    self.taskdir = f"{TASKDIR_ROOT}/{name}.{util.now_micros()}"
     self._log("Creating taskdir %s", self.taskdir)
     self._scratch = self.taskdir + '/scratch'
 
@@ -94,6 +93,9 @@ class Task(backend.Task):
         assert False, "Command %s returned status %s" % (cmd, contents)
       else:
         self._log("Warning: command %s returned status %s" % (cmd, contents))
+
+  def get_logdir_root(self):
+    return LOGDIR_ROOT
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it
@@ -159,7 +161,7 @@ class Task(backend.Task):
       else:
         break
 
-  def _run_and_capture_output(self, cmd, async=False, ignore_errors=False):
+  def run2(self, cmd, async=False, ignore_errors=False):
     cmd_stdout_fn = f'{self._scratch}/{self._run_counter}.stdout'
     assert '|' not in cmd, "don't support piping (since we append piping here)"
     cmd = f'{cmd} | tee {cmd_stdout_fn}'
@@ -172,6 +174,7 @@ class Task(backend.Task):
 
 
 def make_task(name=None,
+              run_name=None,
               **kwargs) -> Task:
   if name is None:
     name = f"{util.now_micros()}"
@@ -183,18 +186,30 @@ def make_task(name=None,
   os.system(f'tmux kill-session -t {tmux_session}')
   os.system(f'tmux new-session -s {tmux_session} -n 0 -d')
 
-  task = Task(name, tmux_window,  # propagate optional args
+  dummy_run = backend.Run(run_name)
+  dummy_job = dummy_run.make_job()
+  task = Task(name, job=dummy_job,
+              tmux_window=tmux_window,  # propagate optional args
               **kwargs)
+  dummy_job.tasks.append(task)
   return task
 
 
 def make_job(name=None,
              num_tasks=0,
+             run_name=None,
              **kwargs
-             ) -> Job:
+             ) -> backend.Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
   assert name.count('.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
   tasks = [make_task(f"{i}.{name}") for i in range(num_tasks)]
-  job = Job(name, tasks, **kwargs)
+
+  dummy_run = backend.Run(run_name)
+  job = backend.Job(name, dummy_run, tasks, **kwargs)
+  dummy_run.jobs.append(job)
   return job
+
+
+def make_run(name) -> backend.Run:
+  return backend.Run(name)

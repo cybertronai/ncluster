@@ -9,7 +9,7 @@ import ncluster
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, default='gpubox',
-                    help="name of the current run")
+                    help="instance name")
 parser.add_argument('--ami', type=str,
                     default='Deep Learning AMI (Ubuntu) Version 12.0',
                     help="name of AMI to use ")

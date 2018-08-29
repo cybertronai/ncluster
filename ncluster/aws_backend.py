@@ -14,6 +14,7 @@ from . import util
 from . import aws_create_resources as create_lib
 
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
+LOGDIR_ROOT = '/ncluster/runs'
 
 
 class Task(backend.Task):
@@ -94,9 +95,12 @@ tmux a
     except Exception:
       return False
 
+  def get_logdir_root(self):
+    return LOGDIR_ROOT
+
   def _setup_tmux(self):
     self._log("Setting up tmux")
-    
+
     self._tmux_window = f"{self.name}-main:0".replace('.', '-')
     tmux_session_name = self._tmux_window[:-2]
 
@@ -118,25 +122,27 @@ tmux a
     self._log("Mounting EFS")
     region = u.get_region()
     efs_id = u.get_efs_dict()[u.get_prefix()]
-    dns = "{efs_id}.efs.{region}.amazonaws.com".format(**locals())
-    self.run('sudo mkdir -p /efs')
+    dns = f"{efs_id}.efs.{region}.amazonaws.com"
+    self.run('sudo mkdir -p /ncluster')
 
     # ignore error on remount (efs already mounted)
-    self.run("sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 %s:/ /efs" % (dns,),
+    self.run(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
              ignore_errors=True)
+    self.run('sudo chmod 777 /ncluster')
 
-    # make sure chmod is successful, hack to fix occasional permission errors
-    self.run('sudo chmod 777 /efs')
-    while 'drwxrwxrwx' not in self._run_and_capture_output('ls -ld /efs'):
-      print(f"chmod 777 /efs didn't take, retrying in {u.RETRY_INTERVAL_SEC}")
-      time.sleep(u.RETRY_INTERVAL_SEC)
-      self.run('sudo chmod 777 /efs')
+    # Hack below may no longer be needed
+    # # make sure chmod is successful, hack to fix occasional permission errors
+    # while 'drwxrwxrwx' not in self.run_and_capture_output('ls -ld /ncluster'):
+    #   print(f"chmod 777 /ncluster didn't take, retrying in {TIMEOUT_SEC}")
+    #   time.sleep(TIMEOUT_SEC)
+    #   self.run('sudo chmod 777 /ncluster')
 
   def join(self):
     while not self._is_initialized_fn_present():
       self._log(f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
       time.sleep(u.RETRY_INTERVAL_SEC)
 
+  # TODO: also chmod the file so that 755 files remain 755
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
@@ -150,6 +156,7 @@ tmux a
       self._log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
+    if os.path.isdir(local_fn):
       u._put_dir(sftp, local_fn, remote_fn)
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
@@ -200,7 +207,7 @@ tmux a
       assert False, "run_ssh command failed"
     return stdout_str, stderr_str
 
-  def _run_and_capture_output(self, cmd, async=False, ignore_errors=False):
+  def run2(self, cmd, async=False, ignore_errors=False):
     # TODO: maybe piping is ok, check
     assert '|' not in cmd, "don't support piping (since we append piping here)"
 
@@ -214,7 +221,8 @@ tmux a
           max_wait_sec=365 * 24 * 3600, check_interval=0.5):
     """Runs command in tmux session."""
 
-    assert self._can_run, ".run command is not yet available"
+    assert self._can_run, ".run command is not yet available"  # TODO: remove
+
     self._run_counter += 1
 
     cmd: str = cmd.strip()
@@ -264,6 +272,7 @@ tmux a
       break
 
 
+# TODO: remove?
 class Job(backend.Job):
   pass
 
@@ -334,6 +343,7 @@ def set_aws_environment():
 
 
 def make_task(name: str = None,
+              run_name: str = None,
               install_script: str = '',
               # image_name='Deep Learning AMI (Ubuntu) Version 12.0',
               image_name: str = '',
@@ -393,21 +403,24 @@ def make_task(name: str = None,
     util.log(f"Allocated {len(instances)} instances")
     instance = instances[0]
 
+  dummy_run = backend.Run(run_name)
+  dummy_job = dummy_run.make_job()
   task = Task(name, instance,  # propagate optional args
               install_script=install_script,
               image_name=image_name,
               instance_type=instance_type)
+  dummy_job.tasks.append(task)
   return task
 
 
-def make_job(name, num_tasks=0, **kwargs) -> Job:
+def make_job(name, num_tasks=0, run_name=None, **kwargs) -> Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
   assert name.count('.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
   # make tasks in parallel
   exceptions = []
-  tasks = [None]*num_tasks
+  tasks = [backend.Task()] * num_tasks
 
   def make_task_fn(i: int):
     try:
@@ -425,9 +438,10 @@ def make_job(name, num_tasks=0, **kwargs) -> Job:
   if exceptions:
     raise exceptions[0]
 
-  job = Job(name, tasks, **kwargs)
+  dummy_run = backend.Run(run_name)
+  job = Job(name, dummy_run, tasks, **kwargs)
+  dummy_run.jobs.append(job)
   return job
-
 
 # def make_run(name, **kwargs):
 #  return Run(name, **kwargs)
