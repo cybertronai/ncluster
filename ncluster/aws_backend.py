@@ -7,6 +7,7 @@ import shlex
 import sys
 import threading
 import time
+from typing import Tuple
 
 from . import backend
 from . import aws_util as u
@@ -15,7 +16,7 @@ from . import aws_create_resources as create_lib
 
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 LOGDIR_ROOT = '/ncluster/runs'
-
+AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
 
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
@@ -126,8 +127,9 @@ tmux a
     self.run('sudo mkdir -p /ncluster')
 
     # ignore error on remount (efs already mounted)
-    self.run(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
-             ignore_errors=True)
+    self.run(
+      f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
+      ignore_errors=True)
     self.run('sudo chmod 777 /ncluster')
 
     # Hack below may no longer be needed
@@ -139,7 +141,8 @@ tmux a
 
   def join(self):
     while not self._is_initialized_fn_present():
-      self._log(f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
+      self._log(
+        f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
       time.sleep(u.RETRY_INTERVAL_SEC)
 
   # TODO: also chmod the file so that 755 files remain 755
@@ -184,56 +187,22 @@ tmux a
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
-  def _run_raw(self, cmd):
-    """Runs given cmd in the task using current SSH session, returns
-    stdout/stderr as strings. Because it blocks until cmd is done, use it for
-    short cmds. Silently ignores failing commands.
-
-    This is a barebones method to be used during initialization that have
-    minimal dependencies (no tmux)
-    :param cmd: command to run
-    :return: stdour and stderr
-    """
-    #    self._log("run_ssh: %s"%(cmd,))
-
-    # TODO(y), transition to SSHClient and assert fail on bad error codes
-    # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
-    stdin, stdout, stderr = self.ssh_client.exec_command(cmd, get_pty=True)
-    stdout_str = stdout.read().decode()
-    stderr_str = stderr.read().decode()
-    # TODO: use shell return status to see if it failed
-    if 'command not found' in stdout_str or 'command not found' in stderr_str:
-      self._log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
-      assert False, "run_ssh command failed"
-    return stdout_str, stderr_str
-
-  def run2(self, cmd, async=False, ignore_errors=False):
-    # TODO: maybe piping is ok, check
-    assert '|' not in cmd, "don't support piping (since we append piping here)"
-
-    ts = str(util.now_micros())
-    cmd_stdout_fn = self._remote_scratch + '/' + str(self._run_counter) + '.' + ts + '.out'
-    cmd = f'{cmd} | tee {cmd_stdout_fn}'
-    self.run(cmd, async, ignore_errors)
-    return self.file_read(cmd_stdout_fn)
-
-  def run(self, cmd, async=False, ignore_errors=False,
-          max_wait_sec=365 * 24 * 3600, check_interval=0.5):
-    """Runs command in tmux session."""
+  def run(self, cmd, async=False, ignore_errors=True,
+          max_wait_sec=365 * 24 * 3600,
+          check_interval=0.5) -> int:
 
     assert self._can_run, ".run command is not yet available"  # TODO: remove
 
-    self._run_counter += 1
-
     cmd: str = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
-      return
+      return -1
 
     self._log("tmux> %s", cmd)
 
     # locking to wait for command to finish
     ts = str(util.now_micros())
-    cmd_fn_out = self._remote_scratch + '/' + str(self._run_counter) + '.' + ts + '.out'
+    cmd_fn_out = self._remote_scratch + '/' + str(
+      self._run_counter) + '.' + ts + '.out'
 
     cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
@@ -244,7 +213,7 @@ tmux a
     tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
     self._run_raw(tmux_cmd)
     if async:
-      return
+      return -1
 
     # wait until command finishes
     start_time = time.time()
@@ -264,12 +233,68 @@ tmux a
         contents = self.file_read(cmd_fn_out)
 
       contents = contents.strip()
-      if contents != '0':
-        if not ignore_errors:
-          assert False, "Command %s returned status %s" % (cmd, contents)
-        else:
-          self._log("Warning: command %s returned status %s" % (cmd, contents))
       break
+
+    return int(contents)
+
+  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[str, str]:
+    """
+
+    Args:
+      cmd: single line shell command to run
+      async (bool): if True, does not wait for command to finish
+      ignore_errors: if True, will succeed even if command failed
+
+    Returns:
+      Contents of stdout as string.
+    Raises
+      RuntimeException: if command produced non-0 returncode
+
+    """
+
+    assert '\n' not in cmd, "Do not support multi-line commands"
+
+    # TODO: maybe piping is ok, check
+    assert '|' not in cmd, "don't support piping (since we append piping here)"
+
+    self._run_counter += 1
+    ts = str(util.now_micros())
+    cmd_stdout_fn = self._remote_scratch + '/' + str(self._run_counter) + '.' \
+                    + ts + '.stdout'
+
+    cmd = f"{cmd} | tee {cmd_stdout_fn}"
+    return_code = self.run(cmd, async, ignore_errors)
+    contents = self.file_read(cmd_stdout_fn)
+
+    if return_code != 0 and not ignore_errors:
+      raise RuntimeError(f"Command '{cmd}' returned status {return_code},"
+                         f" message was '{contents}'")
+    else:
+      self._log(f"Warning: command '{cmd}' returned status {return_code},"
+                f" message was '{contents}'")
+
+    return contents
+
+  def _run_raw(self, cmd):
+    """Runs given cmd in the task using current SSH session, returns
+    stdout/stderr as strings. Because it blocks until cmd is done, use it for
+    short cmds. Silently ignores failing commands.
+
+    This is a barebones method to be used during initialization that have
+    minimal dependencies (no tmux)
+    """
+    #    self._log("run_ssh: %s"%(cmd,))
+
+    # TODO(y), transition to SSHClient and assert fail on bad error codes
+    # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
+    stdin, stdout, stderr = self.ssh_client.exec_command(cmd, get_pty=True)
+    stdout_str = stdout.read().decode()
+    stderr_str = stderr.read().decode()
+    # TODO: use shell return status to see if it failed
+    if 'command not found' in stdout_str or 'command not found' in stderr_str:
+      self._log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
+      assert False, "run_ssh command failed"
+    return stdout_str, stderr_str
 
 
 # TODO: remove?
@@ -286,7 +311,8 @@ def maybe_start_instance(instance):
   if instance.state['Name'] == 'stopped':
     instance.start()
     while True:
-      print("Waiting forever for instances to start. TODO: replace with proper wait loop")
+      print(
+        "Waiting forever for instances to start. TODO: replace with proper wait loop")
       time.sleep(10)
 
 
@@ -311,13 +337,29 @@ def maybe_create_resources():
       return True
     return False
 
-  if should_create_resources():
-    create_lib.create_resources()
+  if not should_create_resources():
+    util.log("Resources already created, no-op")
+    return
+
+  if os.path.exists(AWS_LOCK_FN):
+    pid, ts = open(AWS_LOCK_FN).read().split('-')
+    pid = int(pid)
+    ts = int(ts)
+    util.log(f"Skipping aws resource creation, another resource initiation was "
+             f"initiated {int(time.time()-ts)} seconds ago by "
+             f"{'this process' if pid==os.getpid() else pid}, delete lock file "
+             f"{AWS_LOCK_FN} if this is an error")
+    return
+
+  with open(AWS_LOCK_FN, 'w') as f:
+    f.write(f'{os.getpid()}-{int(time.time())}')
+  create_lib.create_resources()
+  os.remove(AWS_LOCK_FN)
 
 
 def set_aws_environment():
-  """Sets current zone/region environment variables."""
-  current_zone = os.environ.get('AWS_ZONE', '')
+  """Sets current zone/region environment variables. Uses """
+  current_zone = os.environ.get('NCLUSTER_ZONE', '')
   current_region = os.environ.get('AWS_DEFAULT_REGION', '')
 
   if current_region and current_zone:
@@ -337,7 +379,7 @@ def set_aws_environment():
   # zone not set, use first zone of the region
   if not current_zone:
     current_zone = current_region + 'a'
-    os.environ['AWS_ZONE'] = current_zone
+    os.environ['NCLUSTER_ZONE'] = current_zone
 
   util.log(f"Using account {u.get_account_number()}, zone {current_zone}")
 
@@ -348,8 +390,8 @@ def make_task(name: str = None,
               # image_name='Deep Learning AMI (Ubuntu) Version 12.0',
               image_name: str = '',
               instance_type: str = 't3.micro') -> Task:
-  maybe_create_resources()
   set_aws_environment()
+  maybe_create_resources()
 
   if name is None:
     name = f"{u.get_prefix()}-{util.now_micros()}"
@@ -396,7 +438,7 @@ def make_task(name: str = None,
       instances = ec2.create_instances(**args)
     except Exception as e:
       print(f"Instance creation for {name} failed with ({e})")
-      print("You can change availability zone using export AWS_ZONE=...")
+      print("You can change availability zone using export NCLUSTER_ZONE=...")
       sys.exit()
 
     assert instances, f"ec2.create_instances returned {instances}"
@@ -416,7 +458,11 @@ def make_task(name: str = None,
 def make_job(name, num_tasks=0, run_name=None, **kwargs) -> Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
-  assert name.count('.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
+  assert name.count(
+    '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
+
+  set_aws_environment()
+  maybe_create_resources()
 
   # make tasks in parallel
   exceptions = []

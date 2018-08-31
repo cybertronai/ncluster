@@ -17,6 +17,7 @@ Should see something like this
 
 
 To run on AWS
+aws configure # or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_DEFAULT_REGION
 export NCLUSTER_BACKEND=aws
 export NCLUSTER_IMAGE="Deep Learning AMI (Amazon Linux) Version 13.0"
 ./tf_adder.py
@@ -39,7 +40,7 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--role', default='launcher', type=str)
-parser.add_argument("--iters", default=100, help="Maximum number of additions")
+parser.add_argument("--iters", default=10, help="Maximum number of additions")
 parser.add_argument("--data-mb", default=128, help="size of vector in MBs")
 parser.add_argument("--sender-ip", default='127.0.0.1')
 parser.add_argument("--receiver-ip", default='127.0.0.1')

@@ -66,7 +66,7 @@ class Task:
     return self.job.run_.logdir_
 
   def get_logdir_root(self):
-    raise NotImplemented   # this must be overridded by children for custom backend logdir location
+    raise NotImplementedError()   # this must be overridded by children for custom backend logdir location
 
   def is_chief(self):
     return self.job.tasks.index(self) == 0 and self.job.is_chief()
@@ -90,7 +90,7 @@ class Task:
     # re it as well as those specified after it).  Please specify options before other
     # arguments.
 
-    logdir_ls = self.run2(find_command)
+    logdir_ls = self.run_with_output(find_command)
     logdir = f"{logdir_root}/{self.name}"
 
     # TODO, simplify this logic, just get the largest logdir encountered, then do +1
@@ -107,8 +107,9 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run2(self, cmd, async=False, ignore_errors=False):
-    raise NotImplemented()
+  def run_with_output(self, cmd, async=False, ignore_errors=False):
+    """Runs command on given task."""
+    raise NotImplementedError()
 
   def _run_raw(self, cmd):
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
@@ -195,10 +196,10 @@ class Job:
     See Task for documentation of args/kwargs."""
     return self._async_wrapper("run", *args, **kwargs)
 
-  def run2(self, *args, **kwargs):
+  def run_with_output(self, *args, **kwargs):
     """Runs command on every task in the job in parallel, blocks until all tasks finish.
     See Task for documentation of args/kwargs."""
-    return self._async_wrapper("run2", *args, **kwargs)
+    return self._async_wrapper("run_with_output", *args, **kwargs)
 
   def upload(self, *args, **kwargs):
     return self._async_wrapper("upload", *args, **kwargs)
@@ -250,10 +251,10 @@ class Run:
     for job in self.jobs:
       job.run(*args, **kwargs)
 
-  def run2(self, *args, **kwargs):
+  def run_with_output(self, *args, **kwargs):
     """Runs command on every first job in the run, returns stdout."""
     for job in self.jobs:
-      job.run2(*args, **kwargs)
+      job.run_with_output(*args, **kwargs)
 
   def _run_raw(self, *args, **kwargs):
     """_run_raw on every job in the run."""
@@ -273,20 +274,3 @@ class Run:
   #     message = message % args
   #
   #   print("%s %s: %s" % (ts, self.name, message))
-
-
-# Use factory methods task=create_task instead of relying solely on constructors task=Task() because underlying hardware resources may be reused between instantiations
-# For instance, one may create a Task initialized with an instance that was previous created for this kind of task
-# Factory method will make the decision to recreate or reuse such resource, and wrap this resource with a Task object.
-
-def make_job(**kwargs) -> Job:
-  raise NotImplementedError()
-
-
-def make_task(**kwargs) -> Task:
-  raise NotImplementedError()
-
-
-# todo: rename to "start_run" instead of setup_run?
-def make_run(**kwargs) -> Run:
-  raise NotImplementedError()

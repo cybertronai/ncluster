@@ -5,12 +5,16 @@ import shlex
 import subprocess
 import sys
 import time
+from typing import Tuple
 
 from . import backend
 from . import util
 
-TASKDIR_ROOT = '/tmp/tasklogs'
-LOGDIR_ROOT = os.environ['HOME']+'/ncluster/runs'  # use local instead of /tmp because /tmp gets wiped
+TASKDIR_ROOT = '/tmp/ncluster/task'
+SCRATCH_ROOT = '/tmp/ncluster/scratch'
+LOGDIR_ROOT = os.environ[
+                'HOME'] + '/ncluster/runs'  # use local instead of /tmp because /tmp gets wiped
+
 
 # TODO: use separate session for each task, for parity with AWS job launcher
 
@@ -42,11 +46,15 @@ class Task(backend.Task):
     self.connect_instructions = 'tmux a -t ' + self.tmux_window
 
     # task current dir
-    self.taskdir = f"{TASKDIR_ROOT}/{name}.{util.now_micros()}"
-    self._log("Creating taskdir %s", self.taskdir)
-    self._scratch = self.taskdir + '/scratch'
+    print('name is', name)
+    tmpdir = f"{util.reverse_taskname(name)}.{os.getpid()}.{util.now_micros()}"
+    self.taskdir = f"{TASKDIR_ROOT}/{tmpdir}"
+    self._scratch = f"{SCRATCH_ROOT}/{tmpdir}"
 
+    self._log(f"Creating taskdir {self.taskdir}")
     self._run_raw('mkdir -p ' + self.taskdir)
+
+    self._log(f"Creating scratch {self._scratch}")
     self._run_raw('rm -Rf ' + self._scratch)
     self._run_raw('mkdir -p ' + self._scratch)
     self._run_counter = 0
@@ -56,43 +64,74 @@ class Task(backend.Task):
     for line in install_script.split('\n'):
       self.run(line)
 
-  def run(self, cmd, async=False, ignore_errors=False, **kwargs):
+  def run(self, cmd, async=False, ignore_errors=False, **kwargs) -> int:
     self._run_counter += 1
     cmd = cmd.strip()
     if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
-      return
+      return -1
     self._log("tmux> %s", cmd)
 
-    cmd_in_fn = '%s/%d.in' % (self._scratch, self._run_counter)
-    cmd_out_fn = '%s/%d.out' % (self._scratch, self._run_counter)
-    assert not os.path.exists(cmd_out_fn)
+    cmd_fn = f'{self._scratch}/{self._run_counter}.cmd'
+    status_fn = f'{self._scratch}/{self._run_counter}.status'
+    assert not os.path.exists(status_fn)
 
     cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
-    open(cmd_in_fn, 'w').write(cmd + '\n')
-    modified_cmd = '%s ; echo $? > %s' % (cmd, cmd_out_fn)
+    open(cmd_fn, 'w').write(cmd + '\n')
+    modified_cmd = '%s ; echo $? > %s' % (cmd, status_fn)
     modified_cmd = shlex.quote(modified_cmd)
 
     tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
     if async:
-      return
+      return -1
 
     # TODO: dedup this with file waiting logic in aws_backend
-    self._wait_for_file(cmd_out_fn)
-    contents = open(cmd_out_fn).read()
+    self._wait_for_file(status_fn)
+    contents = open(status_fn).read()
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
-      time.sleep(0.1)
-    contents = open(cmd_out_fn).read().strip()
+      time.sleep(0.01)
+    status = int(open(status_fn).read().strip())
 
-    if contents != '0':
+    if status != 0:
       if not ignore_errors:
-        assert False, "Command %s returned status %s" % (cmd, contents)
+        raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
-        self._log("Warning: command %s returned status %s" % (cmd, contents))
+        self._log(f"Warning: command {cmd} returned status {status}")
+
+    return status
+
+  # TODO(y): refactor with aws_backend
+  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[str, str]:
+
+    cmd: str = cmd.strip()
+    if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
+      return '', ''
+
+    self._log('----%s', cmd)
+    assert '\n' not in cmd, "Do not support multi-line commands"
+
+    stdout_fn = f"{self._scratch}/{self._run_counter}.stdout"
+    stderr_fn = f"{self._scratch}/{self._run_counter}.stderr"
+    cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
+    status = self.run(cmd2, async, ignore_errors=True)
+    stdout = self.file_read(stdout_fn)
+    stderr = self.file_read(stderr_fn)
+
+    if status > 0:
+      self._log(f"Warning: command '{cmd}' returned {status},"
+                f" stdout was '{stdout}' stderr was '{stderr}'")
+      if not ignore_errors:
+        raise RuntimeError(f"Warning: command '{cmd}' returned {status},"
+                           f" stdout was '{stdout}' stderr was '{stderr}'")
+    return stdout, stderr
+
+  def _run_raw(self, cmd):
+    """Runs command directly, skipping tmux interface"""
+    os.system(cmd)
 
   def get_logdir_root(self):
     return LOGDIR_ROOT
@@ -109,11 +148,13 @@ class Task(backend.Task):
       self._log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
-    if os.path.isdir(local_fn):
-      raise NotImplemented()
+    # don't allow absolute paths for local backend, things should go into taskdir
+    assert not remote_fn.startswith('/')
 
-    local_fn_full = os.path.abspath(local_fn)
-    self.run("cp -R %s %s" % (local_fn_full, remote_fn))
+    remote_fn = self.taskdir+'/'+remote_fn
+
+    local_fn = os.path.abspath(local_fn)
+    self.run("cp -R %s %s" % (local_fn, remote_fn))
 
   def download(self, source_fn, target_fn='.'):
     raise NotImplementedError()
@@ -125,7 +166,10 @@ class Task(backend.Task):
     return os.path.exists(remote_fn)
 
   def file_read(self, remote_fn):
-    return open(remote_fn).read()
+    if self.file_exists(remote_fn):
+      return open(remote_fn).read()
+    else:
+      return ''
 
   def file_write(self, remote_fn, contents):
     def make_temp_fn():
@@ -161,17 +205,6 @@ class Task(backend.Task):
       else:
         break
 
-  def run2(self, cmd, async=False, ignore_errors=False):
-    cmd_stdout_fn = f'{self._scratch}/{self._run_counter}.stdout'
-    assert '|' not in cmd, "don't support piping (since we append piping here)"
-    cmd = f'{cmd} | tee {cmd_stdout_fn}'
-    self.run(cmd, async, ignore_errors)
-    return self.file_read(cmd_stdout_fn)
-
-  def _run_raw(self, cmd):
-    """Runs command directly, skipping tmux interface"""
-    os.system(cmd)
-
 
 def make_task(name=None,
               run_name=None,
@@ -202,7 +235,8 @@ def make_job(name=None,
              ) -> backend.Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
-  assert name.count('.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
+  assert name.count(
+    '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
   tasks = [make_task(f"{i}.{name}") for i in range(num_tasks)]
 
   dummy_run = backend.Run(run_name)

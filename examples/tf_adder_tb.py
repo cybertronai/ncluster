@@ -2,7 +2,8 @@
 
 
 """
-TensorFlow distributed benchmark + TensorBoard. Create sender/receiver tasks and add arrays from sender tasks to variable on receiver.
+TensorFlow distributed benchmark + TensorBoard. Create sender/receiver tasks and add arrays from sender tasks to
+variable on receiver.
 
 To run locally:
 ./tf_adder_tb.py
@@ -15,6 +16,8 @@ Benchmark done, tensorboard at http://127.0.0.1:6006
 
 
 To run on AWS
+aws configure # or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_DEFAULT_REGION
+
 export NCLUSTER_BACKEND=aws
 export NCLUSTER_IMAGE="Deep Learning AMI (Amazon Linux) Version 13.0"
 ./tf_adder_tb

@@ -57,3 +57,21 @@ def shell_strip_comment(cmd):
     return cmd.split('#', 1)[0]
   else:
     return cmd
+
+
+def reverse_taskname(name: str) -> str:
+  """
+  Reverses components in the name of task. Reversed convention is used for filenames since
+  it groups log/scratch files of related tasks together
+
+  0.somejob.somerun -> somerun.somejob.0
+  0.somejob -> somejob.0
+  somename -> somename
+
+  Args:
+    name: name of task
+
+  """
+  components = name.split('.')
+  assert len(components) <= 3
+  return '.'.join(components[::-1])

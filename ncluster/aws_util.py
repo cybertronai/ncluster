@@ -17,7 +17,7 @@ RETRY_INTERVAL_SEC = 1  # how long to wait before retries
 RETRY_TIMEOUT_SEC = 30  # how long to wait before retrying fails
 DEFAULT_PREFIX = 'ncluster'
 PRIVATE_KEY_LOCATION = os.environ['HOME'] + '/.ncluster'
-
+DUPLICATE_CHECKING=False
 
 def get_vpc():
   """
@@ -56,8 +56,10 @@ def get_vpc_dict():
     if not key or key == EMPTY_NAME:  # skip VPC's that don't have a name assigned
       continue
 
-    assert key not in result, ("Duplicate VPC group %s in %s" % (key,
-                                                                 response))
+    if key in result:
+      util.log(f"Warning: Duplicate VPC group {key} in {response}")
+      if DUPLICATE_CHECKING:
+        assert False
     result[key] = ec2.Vpc(vpc_response['VpcId'])
 
   return result
@@ -113,10 +115,10 @@ def get_placement_group_dict():
   ec2 = get_ec2_resource()
   for placement_group_response in response['PlacementGroups']:
     key = placement_group_response['GroupName']
-    assert key not in result, ("Duplicate placement group " +
-                               key)
-    #    result[key] = (placement_group_response['State'],
-    #                   placement_group_response['Strategy'])
+    if key in result:
+      util.log(f"Warning: Duplicate placement group {key}")
+      if DUPLICATE_CHECKING:
+        assert False
     result[key] = ec2.PlacementGroup(key)
   return result
 
@@ -135,7 +137,10 @@ def get_security_group_dict():
     if not key or key == EMPTY_NAME:
       continue  # ignore unnamed security groups
     #    key = security_group_response['GroupName']
-    assert key not in result, ("Duplicate security group " + key)
+    if key in result:
+      util.log(f"Warning: Duplicate security group {key}")
+      if DUPLICATE_CHECKING:
+        assert key not in result, ("Duplicate security group " + key)
     result[key] = ec2.SecurityGroup(security_group_response['GroupId'])
 
   return result
@@ -152,7 +157,10 @@ def get_keypair_dict():
   ec2 = get_ec2_resource()
   for keypair in response['KeyPairs']:
     keypair_name = keypair.get('KeyName', '')
-    assert keypair_name not in result, "Duplicate key " + keypair_name
+    if keypair_name in result:
+      util.log(f"Warning: Duplicate key {keypair_name}")
+    if DUPLICATE_CHECKING:
+      assert keypair_name not in result, "Duplicate key " + keypair_name
     result[keypair_name] = ec2.KeyPair(keypair_name)
   return result
 
@@ -172,7 +180,9 @@ def get_account_number():
     try:
       return str(boto3.client('sts').get_caller_identity()['Account'])
     except Exception as e:
-      print(f'Exception in get_account_number {e}, retrying')
+      util.log(f'Exception in get_account_number {e}, retrying')
+      if 'AWS_SECRET_ACCESS_KEY' not in os.environ:
+        util.log('AWS_SECRET_ACCESS_KEY not in env vars, did you run "aws configure"?')
       time.sleep(RETRY_INTERVAL_SEC)
 
 
@@ -181,7 +191,7 @@ def get_region():
 
 
 def get_zone():
-  return os.environ['AWS_ZONE']
+  return os.environ['NCLUSTER_ZONE']
 
 
 def get_zones():
@@ -275,12 +285,12 @@ def lookup_image(wildcard):
   """
 
   ec2 = get_ec2_resource()
-  filter = {'Name': 'name', 'Values': [wildcard]}
+  filter_ = {'Name': 'name', 'Values': [wildcard]}
 
-  images = list(ec2.images.filter(Filters=[filter]))
+  images = list(ec2.images.filter(Filters=[filter_]))
 
   # Note, can add filtering by Owners as follows
-  #  images = list(ec2.images.filter(Filters = [filter], Owners=['self', 'amazon']))
+  #  images = list(ec2.images.filter_(Filters = [filter_], Owners=['self', 'amazon']))
 
   assert len(images) <= 1, "Multiple images match " + str(wildcard)
   assert len(images) > 0, "No images match " + str(wildcard)
@@ -414,6 +424,8 @@ def create_efs(name):
       assert is_good_response(response)
       time.sleep(RETRY_INTERVAL_SEC)
     except Exception as e:
+      if 'FileSystemAlreadyExists' in str(e):
+        break
       if response['Error']['Code'] == 'FileSystemAlreadyExists':
         break
       else:
@@ -519,12 +531,11 @@ def get_ip(instance):
 def get_instance_property(instance, property_name):
   """Retrieves property of an instance, with retries"""
 
-  value = None
   name = get_name(instance)
   while True:
     try:
       value = getattr(instance, property_name)
-      assert value is not None
+      assert value is not None, f"{property_name} was None"
       break
     except Exception as e:
       print(f"retrieving {property_name} on {name} failed with {e}, retrying")
@@ -555,7 +566,7 @@ def is_good_response(response):
 
   code = response["ResponseMetadata"]['HTTPStatusCode']
   # get response code 201 on EFS creation
-  return code >= 200 and code < 300
+  return 200 <= code < 300
 
 
 def get_name(tags_or_instance_or_id):
@@ -590,13 +601,13 @@ def get_name(tags_or_instance_or_id):
 # augmented SFTP client that can transfer directories, from
 # https://stackoverflow.com/a/19974994/419116
 def _put_dir(sftp, source, target):
-  ''' Uploads the contents of the source directory to the target path. The
-            target directory needs to exists. All subdirectories in source are 
+  """ Uploads the contents of the source directory to the target path. The
+            target directory needs to exists. All subdirectories in source are
             created under target.
-        '''
+        """
 
-  def _safe_mkdir(sftp, path, mode=511, ignore_existing=True):
-    ''' Augments mkdir by adding an option to not fail if the folder exists  '''
+  def _safe_mkdir(path, mode=511, ignore_existing=True):
+    """ Augments mkdir by adding an option to not fail if the folder exists  """
     try:
       sftp.mkdir(path, mode)
     except IOError:
@@ -612,13 +623,12 @@ def _put_dir(sftp, source, target):
     if os.path.isfile(os.path.join(source, item)):
       sftp.put(os.path.join(source, item), os.path.join(target, item))
     else:
-      _safe_mkdir(sftp, '%s/%s' % (target, item))
+      _safe_mkdir('%s/%s' % (target, item))
       _put_dir(sftp, os.path.join(source, item), '%s/%s' % (target, item))
 
 
 def wait_until_available(resource):
   """Waits until interval state becomes 'available'"""
-  start_time = time.time()
   while True:
     resource.load()
     if resource.state == 'available':

@@ -32,12 +32,16 @@ def get_backend_module() -> backend:
 #  return _backend.Run(name, **kwargs)
 
 
+# Use factory methods task=create_task instead of relying solely on constructors task=Task() because underlying hardware resources may be reused between instantiations
+# For instance, one may create a Task initialized with an instance that was previous created for this kind of task
+# Factory method will make the decision to recreate or reuse such resource, and wrap this resource with a Task object.
+
 def make_run(name='', **kwargs) -> backend.Run:
   return _backend.make_run(name, **kwargs)
 
 
-def make_job(name='', **kwargs) -> backend.Job:
-  return _backend.make_job(name, **kwargs)
+def make_job(name='', num_tasks=0, **kwargs) -> backend.Job:
+  return _backend.make_job(name, num_tasks, **kwargs)
 
 
 def make_task(name='', **kwargs) -> backend.Task:

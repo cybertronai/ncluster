@@ -1,4 +1,4 @@
-jupyter
+jupyter     # for notebook.auth.passwd
 tensorflow
 torch
 ray

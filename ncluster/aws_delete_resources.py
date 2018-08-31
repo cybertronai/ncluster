@@ -19,7 +19,8 @@ import boto3
 import time
 from collections import OrderedDict
 
-from . import aws_util as u
+from ncluster import aws_util as u
+from ncluster import util
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--kind', type=str, default='all',
@@ -84,7 +85,7 @@ def delete_network():
         sys.stdout.write(response_type(subnet.delete())+'\n')
       except Exception as e:
         sys.stdout.write('failed\n')
-        u.log_error(str(e)+'\n')
+        util.log_error(str(e)+'\n')
 
     for gateway in vpc.internet_gateways.all():
       sys.stdout.write("Deleting gateway %s ... " % (gateway.id))
@@ -103,7 +104,7 @@ def delete_network():
         sys.stdout.write(response_type(route_table.delete())+'\n')
       except Exception as e:
         sys.stdout.write('failed\n')
-        u.log_error(str(e)+'\n')
+        util.log_error(str(e)+'\n')
 
     def desc(security_group):
       return "%s (%s, %s)"%(security_group.id, u.get_name(security_group.tags),
@@ -115,14 +116,14 @@ def delete_network():
         sys.stdout.write(response_type(security_group.delete())+'\n')
       except Exception as e:
         sys.stdout.write('failed\n')
-        u.log_error(str(e)+'\n')
+        util.log_error(str(e)+'\n')
 
     sys.stdout.write("Deleting VPC %s ... " % (vpc.id))
     try:
       sys.stdout.write(response_type(vpc.delete())+'\n')
     except Exception as e:
       sys.stdout.write('failed\n')
-      u.log_error(str(e)+'\n')
+      util.log_error(str(e)+'\n')
   
 def delete_keypair():
   keypairs = u.get_keypair_dict()
@@ -134,7 +135,7 @@ def delete_keypair():
       sys.stdout.write(response_type(keypair.delete())+'\n')
     except Exception as e:
       sys.stdout.write('failed\n')
-      u.log_error(str(e)+'\n')
+      util.log_error(str(e)+'\n')
 
   keypair_fn = u.get_keypair_fn()
   if os.path.exists(keypair_fn):
