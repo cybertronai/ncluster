@@ -135,8 +135,8 @@ class Task:
     if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
       return '', ''
 
-    stdout_fn = f"{self.remote_scratch}/{self.run_counter}.stdout"
-    stderr_fn = f"{self.remote_scratch}/{self.run_counter}.stderr"
+    stdout_fn = f"{self.remote_scratch}/{self.run_counter+1}.stdout"
+    stderr_fn = f"{self.remote_scratch}/{self.run_counter+1}.stderr"
     cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
 
     status = self.run(cmd2, async, ignore_errors=True)

@@ -79,7 +79,7 @@ class Task(backend.Task):
     cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
-    open(cmd_fn, 'w').write(cmd + '\n')
+    self.file_write(cmd_fn, cmd + '\n')
     modified_cmd = f'{cmd} ; echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
@@ -123,13 +123,11 @@ class Task(backend.Task):
       self._log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
-    # don't allow absolute paths for local backend, things should go into taskdir
-    assert not remote_fn.startswith('/')
-
-    remote_fn = self.taskdir + '/' + remote_fn
+    if not remote_fn.startswith('/'):
+      remote_fn = self.taskdir + '/' + remote_fn
 
     local_fn = os.path.abspath(local_fn)
-    self.run("cp -R %s %s" % (local_fn, remote_fn))
+    self._run_raw("cp -R %s %s" % (local_fn, remote_fn))
 
   def download(self, source_fn, target_fn='.'):
     raise NotImplementedError()

@@ -198,14 +198,14 @@ tmux a
       return -1
     self._log("tmux> %s", cmd)
 
-    cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
+    cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
     status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
 
     cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
     # modify command to dump shell success status into file
-    open(cmd_fn, 'w').write(cmd + '\n')
+    self.file_write(cmd_fn, cmd + '\n')
     modified_cmd = f'{cmd}; echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
