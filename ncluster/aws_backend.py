@@ -7,7 +7,6 @@ import shlex
 import sys
 import threading
 import time
-from typing import Tuple
 
 from . import backend
 from . import aws_util as u
@@ -17,6 +16,8 @@ from . import aws_create_resources as create_lib
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 LOGDIR_ROOT = '/ncluster/runs'
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
+NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region
+
 
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
@@ -44,12 +45,12 @@ class Task(backend.Task):
     if 'amzn' in image_name or 'amazon' in image_name:
       self._log('Detected Amazon Linux image')
       self._linux_type = 'amazon'
-    self._run_counter = 0
+    self.run_counter = 0
 
-    self._local_scratch = f"{TMPDIR}/{name}"
-    self._remote_scratch = f"{TMPDIR}/{name}"
+    self.local_scratch = f"{TMPDIR}/{name}"
+    self.remote_scratch = f"{TMPDIR}/{name}"
 
-    os.system('mkdir -p ' + self._local_scratch)
+    os.system('mkdir -p ' + self.local_scratch)
 
     self._initialized_fn = f'{TMPDIR}/{self.name}.initialized'
 
@@ -64,7 +65,7 @@ class Task(backend.Task):
 
     self.ssh_client = u.ssh_to_task(self)
     self._setup_tmux()
-    self._run_raw('mkdir -p ' + self._remote_scratch)
+    self._run_raw('mkdir -p ' + self.remote_scratch)
     self._mount_efs()
 
     if self._is_initialized_fn_present():
@@ -102,19 +103,19 @@ tmux a
   def _setup_tmux(self):
     self._log("Setting up tmux")
 
-    self._tmux_window = f"{self.name}-main:0".replace('.', '-')
-    tmux_session_name = self._tmux_window[:-2]
+    self._tmux_window = f"{self.name}-main:0".replace('.', '=')
+    tmux_session = self._tmux_window[:-2]
 
     tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
                 f'set-option -g mouse on \; ',
-                f'new-session -s {tmux_session_name} -n 0 -d']
+                f'new-session -s {tmux_session} -n 0 -d']
 
     # hack to get around Amazon linux not having tmux
     if self._linux_type == 'amazon':
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
-    self._run_raw(f'tmux kill-session -t {tmux_session_name}')
+    self._run_raw(f'tmux kill-session -t {tmux_session}')
     self._run_raw(''.join(tmux_cmd))
 
     self._can_run = True
@@ -178,102 +179,56 @@ tmux a
     return 'No such file' not in stdout
 
   def file_write(self, remote_fn, contents):
-    tmp_fn = self._local_scratch + '/' + str(util.now_micros())
+    tmp_fn = self.local_scratch + '/' + str(util.now_micros())
     open(tmp_fn, 'w').write(contents)
     self.upload(tmp_fn, remote_fn)
 
   def file_read(self, remote_fn):
-    tmp_fn = self._local_scratch + '/' + str(util.now_micros())
+    tmp_fn = self.local_scratch + '/' + str(util.now_micros())
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
-  def run(self, cmd, async=False, ignore_errors=True,
+  def run(self, cmd, async=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.5) -> int:
 
-    assert self._can_run, ".run command is not yet available"  # TODO: remove
-
-    cmd: str = cmd.strip()
+    self.run_counter += 1
+    cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
-
     self._log("tmux> %s", cmd)
 
-    # locking to wait for command to finish
-    ts = str(util.now_micros())
-    cmd_fn_out = self._remote_scratch + '/' + str(
-      self._run_counter) + '.' + ts + '.out'
+    cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
+    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
 
     cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
     # modify command to dump shell success status into file
-    modified_cmd = '%s; echo $? > %s' % (cmd, cmd_fn_out)
+    open(cmd_fn, 'w').write(cmd + '\n')
+    modified_cmd = f'{cmd}; echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
+
     tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
     self._run_raw(tmux_cmd)
     if async:
-      return -1
+      return 0
 
-    # wait until command finishes
-    start_time = time.time()
+    self.wait_for_file(status_fn)
+    contents = self.file_read(status_fn)
 
-    while True:
-      if time.time() - start_time > max_wait_sec:
-        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, cmd)
-      if not self.file_exists(cmd_fn_out):
-        self._log("waiting for %s" % (cmd,))
-        time.sleep(check_interval)
-        continue
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+    status = int(self.file_read(status_fn).strip())
 
-      contents = self.file_read(cmd_fn_out)
-      # if empty wait a bit to allow for race condition
-      if len(contents) == 0:
-        time.sleep(check_interval)
-        contents = self.file_read(cmd_fn_out)
+    if status != 0:
+      if not ignore_errors:
+        raise RuntimeError(f"Command {cmd} returned status {status}")
+      else:
+        self._log(f"Warning: command {cmd} returned status {status}")
 
-      contents = contents.strip()
-      break
-
-    return int(contents)
-
-  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[str, str]:
-    """
-
-    Args:
-      cmd: single line shell command to run
-      async (bool): if True, does not wait for command to finish
-      ignore_errors: if True, will succeed even if command failed
-
-    Returns:
-      Contents of stdout as string.
-    Raises
-      RuntimeException: if command produced non-0 returncode
-
-    """
-
-    assert '\n' not in cmd, "Do not support multi-line commands"
-
-    # TODO: maybe piping is ok, check
-    assert '|' not in cmd, "don't support piping (since we append piping here)"
-
-    self._run_counter += 1
-    ts = str(util.now_micros())
-    cmd_stdout_fn = self._remote_scratch + '/' + str(self._run_counter) + '.' \
-                    + ts + '.stdout'
-
-    cmd = f"{cmd} | tee {cmd_stdout_fn}"
-    return_code = self.run(cmd, async, ignore_errors)
-    contents = self.file_read(cmd_stdout_fn)
-
-    if return_code != 0 and not ignore_errors:
-      raise RuntimeError(f"Command '{cmd}' returned status {return_code},"
-                         f" message was '{contents}'")
-    else:
-      self._log(f"Warning: command '{cmd}' returned status {return_code},"
-                f" message was '{contents}'")
-
-    return contents
+    return status
 
   def _run_raw(self, cmd):
     """Runs given cmd in the task using current SSH session, returns
@@ -372,8 +327,12 @@ def set_aws_environment():
     os.environ['AWS_DEFAULT_REGION'] = current_region
 
   # neither zone nor region not set, use default setting for region
+  # if default is not set, use NCLUSTER_DEFAULT_REGION
   if not current_region:
     current_region = u.get_session().region_name
+    if not current_region:
+      util.log(f"No default region available, using {NCLUSTER_DEFAULT_REGION}")
+      current_region = NCLUSTER_DEFAULT_REGION
     os.environ['AWS_DEFAULT_REGION'] = current_region
 
   # zone not set, use first zone of the region
@@ -393,8 +352,8 @@ def make_task(name: str = None,
   set_aws_environment()
   maybe_create_resources()
 
-  if name is None:
-    name = f"{u.get_prefix()}-{util.now_micros()}"
+  if not name:
+    name = f"unnamed-{util.random_id()}"
   instance = u.lookup_instance(name)  # todo: also add kwargs
   maybe_start_instance(instance)
 

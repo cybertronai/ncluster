@@ -5,7 +5,6 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Tuple
 
 from . import backend
 from . import util
@@ -37,7 +36,7 @@ class Task(backend.Task):
     self.kwargs = kwargs
 
     # local servers sometimes listen only on localhost (TensorBoard), and sometimes only on
-    # externally assigned ip address from gethostbyname (Ray), use the localhost arbitrarily
+    # externally assigned ip address from gethostbyname (Ray), must choose one, so use the localhost for TB compatibility
     # https://github.com/ray-project/ray/issues/1677
     #    self.public_ip = socket.gethostbyname(socket.gethostname())
     self.public_ip = '127.0.0.1'
@@ -49,15 +48,17 @@ class Task(backend.Task):
     print('name is', name)
     tmpdir = f"{util.reverse_taskname(name)}.{os.getpid()}.{util.now_micros()}"
     self.taskdir = f"{TASKDIR_ROOT}/{tmpdir}"
-    self._scratch = f"{SCRATCH_ROOT}/{tmpdir}"
+    self.local_scratch = f"{SCRATCH_ROOT}/{tmpdir}"
+    self.remote_scratch = f"{SCRATCH_ROOT}/{tmpdir}"
 
     self._log(f"Creating taskdir {self.taskdir}")
     self._run_raw('mkdir -p ' + self.taskdir)
 
-    self._log(f"Creating scratch {self._scratch}")
-    self._run_raw('rm -Rf ' + self._scratch)
-    self._run_raw('mkdir -p ' + self._scratch)
-    self._run_counter = 0
+    self._log(f"Creating scratch {self.local_scratch}")
+    self._run_raw('rm -Rf ' + self.local_scratch)
+    self._run_raw('mkdir -p ' + self.local_scratch)
+    self._run_raw('mkdir -p ' + self.remote_scratch)
+    self.run_counter = 0
 
     self.run('cd ' + self.taskdir)
     self.install_script = install_script
@@ -65,31 +66,30 @@ class Task(backend.Task):
       self.run(line)
 
   def run(self, cmd, async=False, ignore_errors=False, **kwargs) -> int:
-    self._run_counter += 1
+    self.run_counter += 1
     cmd = cmd.strip()
     if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
     self._log("tmux> %s", cmd)
 
-    cmd_fn = f'{self._scratch}/{self._run_counter}.cmd'
-    status_fn = f'{self._scratch}/{self._run_counter}.status'
+    cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
+    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
     assert not os.path.exists(status_fn)
 
     cmd = util.shell_strip_comment(cmd)
     assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
     open(cmd_fn, 'w').write(cmd + '\n')
-    modified_cmd = '%s ; echo $? > %s' % (cmd, status_fn)
+    modified_cmd = f'{cmd} ; echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
     tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
     if async:
-      return -1
+      return 0
 
-    # TODO: dedup this with file waiting logic in aws_backend
-    self._wait_for_file(status_fn)
-    contents = open(status_fn).read()
+    self.wait_for_file(status_fn)
+    contents = self.file_read(status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
@@ -103,31 +103,6 @@ class Task(backend.Task):
         self._log(f"Warning: command {cmd} returned status {status}")
 
     return status
-
-  # TODO(y): refactor with aws_backend
-  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[str, str]:
-
-    cmd: str = cmd.strip()
-    if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
-      return '', ''
-
-    self._log('----%s', cmd)
-    assert '\n' not in cmd, "Do not support multi-line commands"
-
-    stdout_fn = f"{self._scratch}/{self._run_counter}.stdout"
-    stderr_fn = f"{self._scratch}/{self._run_counter}.stderr"
-    cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
-    status = self.run(cmd2, async, ignore_errors=True)
-    stdout = self.file_read(stdout_fn)
-    stderr = self.file_read(stderr_fn)
-
-    if status > 0:
-      self._log(f"Warning: command '{cmd}' returned {status},"
-                f" stdout was '{stdout}' stderr was '{stderr}'")
-      if not ignore_errors:
-        raise RuntimeError(f"Warning: command '{cmd}' returned {status},"
-                           f" stdout was '{stdout}' stderr was '{stderr}'")
-    return stdout, stderr
 
   def _run_raw(self, cmd):
     """Runs command directly, skipping tmux interface"""
@@ -151,7 +126,7 @@ class Task(backend.Task):
     # don't allow absolute paths for local backend, things should go into taskdir
     assert not remote_fn.startswith('/')
 
-    remote_fn = self.taskdir+'/'+remote_fn
+    remote_fn = self.taskdir + '/' + remote_fn
 
     local_fn = os.path.abspath(local_fn)
     self.run("cp -R %s %s" % (local_fn, remote_fn))
@@ -169,12 +144,12 @@ class Task(backend.Task):
     if self.file_exists(remote_fn):
       return open(remote_fn).read()
     else:
-      return ''
+      raise RuntimeError(f"No such file {remote_fn}")
 
   def file_write(self, remote_fn, contents):
     def make_temp_fn():
       """Returns temporary filename for this task."""
-      return self._scratch + '/file_write.' + str(util.now_micros())
+      return self.local_scratch + '/file_write.' + str(util.now_micros())
 
     tmp_fn = make_temp_fn()
     open(tmp_fn, 'w').write(contents)
@@ -193,27 +168,15 @@ class Task(backend.Task):
     for line in iter(p.stdout.readline, ''):
       sys.stdout.write(line.decode('ascii', errors='ignore'))
 
-  def _wait_for_file(self, fn, max_wait_sec=600, check_interval=0.02):
-    print("Waiting for file", fn)
-    start_time = time.time()
-    while True:
-      if time.time() - start_time > max_wait_sec:
-        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, fn)
-      if not self.file_exists(fn):
-        time.sleep(check_interval)
-        continue
-      else:
-        break
-
 
 def make_task(name=None,
               run_name=None,
               **kwargs) -> Task:
-  if name is None:
-    name = f"{util.now_micros()}"
+  if not name:
+    name = f"unnamed-{util.random_id()}"
 
   # tmux can't use . for session names
-  tmux_window = name.replace('.', '-') + ':0'
+  tmux_window = name.replace('.', '=') + ':0'
   tmux_session = tmux_window[:-2]
   util.log(f'killing session {tmux_session}')
   os.system(f'tmux kill-session -t {tmux_session}')

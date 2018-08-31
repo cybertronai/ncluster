@@ -11,13 +11,17 @@ import boto3
 
 from . import util
 
-
 EMPTY_NAME = "noname"  # name to use when name attribute is missing on AWS
 RETRY_INTERVAL_SEC = 1  # how long to wait before retries
 RETRY_TIMEOUT_SEC = 30  # how long to wait before retrying fails
 DEFAULT_PREFIX = 'ncluster'
 PRIVATE_KEY_LOCATION = os.environ['HOME'] + '/.ncluster'
-DUPLICATE_CHECKING=False
+DUPLICATE_CHECKING = False
+
+
+# Can't annotate boto3 return types because they are missing stubs
+# https://github.com/boto/boto3/issues/1055
+# https://stackoverflow.com/questions/52087307/adding-type-hinting-to-functions-that-return-boto3-objects
 
 def get_vpc():
   """
@@ -182,7 +186,8 @@ def get_account_number():
     except Exception as e:
       util.log(f'Exception in get_account_number {e}, retrying')
       if 'AWS_SECRET_ACCESS_KEY' not in os.environ:
-        util.log('AWS_SECRET_ACCESS_KEY not in env vars, did you run "aws configure"?')
+        util.log(
+          'AWS_SECRET_ACCESS_KEY not in env vars, configure your AWS credentials."')
       time.sleep(RETRY_INTERVAL_SEC)
 
 
@@ -204,7 +209,8 @@ def get_zones():
     zone = avail_response['ZoneName']
     state = avail_response['State']
     assert not messages, "zone %s is broken? Has messages %s" % (zone, messages)
-    assert state == 'available', "zone %s is broken? Has state %s" % (zone, state)
+    assert state == 'available', "zone %s is broken? Has state %s" % (
+    zone, state)
     zones.append(zone)
   return zones
 
@@ -440,7 +446,8 @@ def create_efs(name):
   # find efs id from given token
   response = efs_client.describe_file_systems()
   assert is_good_response(response)
-  fs_id = extract_attr_for_match(response['FileSystems'], FileSystemId=-1, CreationToken=token)
+  fs_id = extract_attr_for_match(response['FileSystems'], FileSystemId=-1,
+                                 CreationToken=token)
   response = efs_client.create_tags(FileSystemId=fs_id,
                                     Tags=create_name_tags(name))
   assert is_good_response(response)
@@ -585,7 +592,8 @@ def get_name(tags_or_instance_or_id):
   elif tags_or_instance_or_id is None:
     return EMPTY_NAME
   else:
-    assert isinstance(tags_or_instance_or_id, Iterable), "expected iterable of tags"
+    assert isinstance(tags_or_instance_or_id,
+                      Iterable), "expected iterable of tags"
     tags = tags_or_instance_or_id
 
   if not tags:

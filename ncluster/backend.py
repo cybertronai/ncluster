@@ -3,7 +3,7 @@
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
 import threading
 import time
-from typing import List
+from typing import List, Tuple
 
 from . import util
 
@@ -49,13 +49,21 @@ def _current_timestamp() -> str:
 
 
 class Task:
+  name: str
+  ip: str
+  public_ip: str
+  run_counter: int
+  # location where temporary files from interfacing with task go locally
+  local_scratch: str
+  # location where temporary files from interfacing with task go on task
+  remote_scratch: str
+
   def __init__(self):
     self.name = None
     self.instance = None
     self.install_script = None
     self.job = None
     self.kwargs = None
-
     self.public_ip = None
     self.ip = None
     self.logdir_ = None
@@ -90,14 +98,14 @@ class Task:
     # re it as well as those specified after it).  Please specify options before other
     # arguments.
 
-    logdir_ls = self.run_with_output(find_command)
+    stdout, stderr = self.run_with_output(find_command)
     logdir = f"{logdir_root}/{self.name}"
 
     # TODO, simplify this logic, just get the largest logdir encountered, then do +1
     counter = 0
-    while logdir in logdir_ls:
+    while logdir in stdout:
       counter += 1
-      lll = '%s.%02d' % (f"{logdir_root}/{self.name}", counter)
+      lll = f'{logdir_root}/{self.name}.{counter:02d}'
       self._log(f'Warning, logdir {logdir} exists, deduping to {lll}')
       logdir = lll
     self.run(f'mkdir -p {logdir}')
@@ -107,9 +115,54 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run_with_output(self, cmd, async=False, ignore_errors=False):
-    """Runs command on given task."""
-    raise NotImplementedError()
+  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[str, str]:
+    """
+
+    Args:
+      cmd: single line shell command to run
+      async (bool): if True, does not wait for command to finish
+      ignore_errors: if True, will succeed even if command failed
+
+    Returns:
+      Contents of stdout/stderr as strings.
+    Raises
+      RuntimeException: if command produced non-0 returncode
+
+    """
+
+    assert '\n' not in cmd, "Do not support multi-line commands"
+    cmd: str = cmd.strip()
+    if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
+      return '', ''
+
+    stdout_fn = f"{self.remote_scratch}/{self.run_counter}.stdout"
+    stderr_fn = f"{self.remote_scratch}/{self.run_counter}.stderr"
+    cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
+
+    status = self.run(cmd2, async, ignore_errors=True)
+    stdout = self.file_read(stdout_fn)
+    stderr = self.file_read(stderr_fn)
+
+    if status > 0:
+      self._log(f"Warning: command '{cmd}' returned {status},"
+                f" stdout was '{stdout}' stderr was '{stderr}'")
+      if not ignore_errors:
+        raise RuntimeError(f"Warning: command '{cmd}' returned {status},"
+                           f" stdout was '{stdout}' stderr was '{stderr}'")
+
+    return stdout, stderr
+
+  def wait_for_file(self, fn, max_wait_sec=600, check_interval=0.02):
+    print("Waiting for file", fn)
+    start_time = time.time()
+    while True:
+      if time.time() - start_time > max_wait_sec:
+        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, fn)
+      if not self.file_exists(fn):
+        time.sleep(check_interval)
+        continue
+      else:
+        break
 
   def _run_raw(self, cmd):
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
@@ -139,7 +192,7 @@ class Task:
   def _log(self, message, *args):
     """Log to launcher console."""
     if args:
-      message = message % args
+      message %= args
 
     print(f"{_current_timestamp()} {self.name}: {message}")
 

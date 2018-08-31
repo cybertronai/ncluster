@@ -1,15 +1,31 @@
+import random
+import string
 import time
 from collections import Iterable
 import shlex
 
+# starting value for now_micros (Aug 31, 2018)
+# using this to make various timestamped names shorter
+EPOCH_MICROS=1535753974788163
 
 def is_iterable(k):
   return isinstance(k, Iterable)
 
 
-def now_micros() -> int:
+def now_micros(absolute=False) -> int:
   """Return current micros since epoch as integer."""
-  return int(time.time()*1e6)
+  micros = int(time.time()*1e6)
+  if absolute:
+    return micros
+  return micros - EPOCH_MICROS
+
+
+def now_millis(absolute=False) -> int:
+  """Return current micros since epoch as integer."""
+  millis = int(time.time()*1e3)
+  if absolute:
+    return millis
+  return millis - EPOCH_MICROS/1000
 
 
 def log_error(*args, **kwargs):
@@ -57,6 +73,12 @@ def shell_strip_comment(cmd):
     return cmd.split('#', 1)[0]
   else:
     return cmd
+
+
+def random_id(N=5):
+  """Random id to use for AWS identifiers."""
+  #  https://stackoverflow.com/questions/2257441/random-string-generation-with-upper-case-letters-and-digits-in-python
+  return ''.join(random.choices(string.ascii_lowercase + string.digits, k=N))
 
 
 def reverse_taskname(name: str) -> str:
