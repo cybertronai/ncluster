@@ -173,6 +173,9 @@ def make_task(name='',
   if not name:
     name = f"unnamed-{util.random_id()}"
 
+  if not run_name:
+    run_name = f'default-{name}'
+
   # tmux can't use . for session names
   tmux_window = name.replace('.', '=') + ':0'
   tmux_session = tmux_window[:-2]

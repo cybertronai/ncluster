@@ -3,7 +3,7 @@
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
 import threading
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from . import util
 
@@ -57,6 +57,7 @@ class Task:
   local_scratch: str
   # location where temporary files from interfacing with task go on task
   remote_scratch: str
+  job: Any  # can't declare Job because of circular dependency
 
   def __init__(self):
     self.name = None
@@ -72,6 +73,10 @@ class Task:
   def logdir(self):
     self.setup_logdir()  # creates logdir if necessary, stores it in associated run_.logdir_
     return self.job.run_.logdir_
+
+  @property
+  def run_name(self):
+    return self.job.run_.name
 
   def get_logdir_root(self):
     raise NotImplementedError()  # this must be overridded by children for custom backend logdir location
@@ -91,21 +96,18 @@ class Task:
 
     # logdir root can differ between backends, hence get it from the actual backend being used
     logdir_root = self.get_logdir_root()
-    find_command = f'find {logdir_root} -type d -maxdepth 1'
 
-    # TODO: get rid of find warning
-    #    find: warning: you have specified the -maxdepth option after a non-option argument -type, but options are not positional (-maxdepth affects tests specified befo
-    # re it as well as those specified after it).  Please specify options before other
-    # arguments.
+    self.run(f'mkdir -p {logdir_root}')
+    find_command = f'find {logdir_root} -maxdepth 1 -type d'
 
     stdout, stderr = self.run_with_output(find_command)
-    logdir = f"{logdir_root}/{self.name}"
+    logdir = f"{logdir_root}/{self.run_name}"
 
     # TODO, simplify this logic, just get the largest logdir encountered, then do +1
     counter = 0
     while logdir in stdout:
       counter += 1
-      lll = f'{logdir_root}/{self.name}.{counter:02d}'
+      lll = f'{logdir_root}/{self.run_name}.{counter:02d}'
       self._log(f'Warning, logdir {logdir} exists, deduping to {lll}')
       logdir = lll
     self.run(f'mkdir -p {logdir}')

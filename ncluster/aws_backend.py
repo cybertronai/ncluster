@@ -356,9 +356,9 @@ def make_task(
   Create task on AWS
 
   Args:
-    name: see backend.make_task
-    run_name: see backend.make_task
-    install_script: see backend.make_task
+    name: see ncluster.make_task
+    run_name: see ncluster.make_task
+    install_script: see ncluster.make_task
     instance_type: instance type to use, ie t3.micro, defaults to $NCLUSTER_INSTANCE
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE
     preemptible: use cheaper preemptible/spot instances
@@ -371,6 +371,9 @@ def make_task(
 
   if not name:
     name = f"unnamed-{util.random_id()}"
+
+  if not run_name:
+    run_name = f'default-{name}'
 
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',

@@ -627,14 +627,14 @@ def _put_dir(sftp, source, target):
         raise
 
   assert os.path.isdir(source)
-  _safe_mkdir(sftp, target)
+  _safe_mkdir(target)
 
   for item in os.listdir(source):
     if os.path.isfile(os.path.join(source, item)):
       sftp.put(os.path.join(source, item), os.path.join(target, item))
     else:
-      _safe_mkdir('%s/%s' % (target, item))
-      _put_dir(sftp, os.path.join(source, item), '%s/%s' % (target, item))
+      _safe_mkdir(f'{target}/{item}')
+      _put_dir(sftp, os.path.join(source, item), f'{target}/{item}')
 
 
 def wait_until_available(resource):

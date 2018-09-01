@@ -1,6 +1,9 @@
 from . import aws_backend
 from . import local_backend
 from . import backend  # TODO: remove?
+from . import util
+
+util.install_pdb_handler()  # CTRL+\ drops into pdb
 
 import collections
 
@@ -45,9 +48,10 @@ def make_task(name: str = '',
 def make_job(name: str = '',
              run_name: str = '',
              num_tasks: int = 0,
+             install_script: str = '',
              **kwargs
              ) -> backend.Job:
-  return _backend.make_job(name, run_name, num_tasks, **kwargs)
+  return _backend.make_job(name, run_name, num_tasks, install_script, **kwargs)
 
 
 def make_run(name: str = '', **kwargs) -> backend.Run:
