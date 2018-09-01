@@ -74,7 +74,7 @@ class Task:
     return self.job.run_.logdir_
 
   def get_logdir_root(self):
-    raise NotImplementedError()   # this must be overridded by children for custom backend logdir location
+    raise NotImplementedError()  # this must be overridded by children for custom backend logdir location
 
   def is_chief(self):
     return self.job.tasks.index(self) == 0 and self.job.is_chief()
@@ -115,7 +115,8 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[str, str]:
+  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[
+    str, str]:
     """
 
     Args:
@@ -168,12 +169,12 @@ class Task:
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
     raise NotImplementedError()
 
-  def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
+  def upload(self, local_fn, remote_fn='', dont_overwrite=False):
     """Uploads given file to the task. If remote_fn is not specified, dumps it
     into task current directory with the same name."""
     raise NotImplementedError()
 
-  def download(self, remote_fn, local_fn=None):
+  def download(self, remote_fn, local_fn=''):
     """Downloads remote file to current directory."""
     raise NotImplementedError()
 
@@ -270,7 +271,7 @@ class Run:
   event files. """
   jobs: List[Job]
 
-  def __init__(self, name=None, jobs=None, **kwargs):
+  def __init__(self, name='', jobs=None, **kwargs):
     """Creates a run. If install_script is specified, it's used as default
     install_script for all jobs (can be overridden by Job constructor)"""
 

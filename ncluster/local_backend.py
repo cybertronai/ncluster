@@ -167,8 +167,8 @@ class Task(backend.Task):
       sys.stdout.write(line.decode('ascii', errors='ignore'))
 
 
-def make_task(name=None,
-              run_name=None,
+def make_task(name='',
+              run_name='',
               **kwargs) -> Task:
   if not name:
     name = f"unnamed-{util.random_id()}"

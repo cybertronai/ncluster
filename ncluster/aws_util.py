@@ -303,7 +303,9 @@ def lookup_image(wildcard):
   return images[0]
 
 
-def lookup_instance(name, instance_type='', states=('running', 'stopped')):
+# TODO: validate image_name
+def lookup_instance(name: str, instance_type: str = '', _image_name: str = '',
+                    states: tuple = ('running', 'stopped')) -> object:
   """Looks up AWS instance for a given AWS instance name and current user, like
    simple.worker. If no instance found, returns None. """
 

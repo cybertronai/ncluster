@@ -7,6 +7,7 @@ import shlex
 import sys
 import threading
 import time
+from typing import Union
 
 from . import backend
 from . import aws_util as u
@@ -23,7 +24,8 @@ class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
   creation of SSH session, shutdown"""
 
-  def __init__(self, name, instance, *, install_script='', job=None,
+  def __init__(self, name, instance, *, install_script='', image_name='',
+               job=None,
                **extra_kwargs):
 
     self._can_run = False  # indicates that things needed for .run were created
@@ -41,7 +43,6 @@ class Task(backend.Task):
 
     # heuristic to tell if I'm using Amazon image name
     # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
-    image_name = extra_kwargs.get('image_name', '').lower()
     if 'amzn' in image_name or 'amazon' in image_name:
       self._log('Detected Amazon Linux image')
       self._linux_type = 'amazon'
@@ -73,7 +74,7 @@ class Task(backend.Task):
     else:
       self._log("running install script")
 
-      # bin/bash needed to make self-executable or use UserData
+      # bin/bash needed to make self-executable or use with UserData
       self.install_script = '#!/bin/bash\n' + self.install_script
       self.install_script += f'\necho ok > {self._initialized_fn}\n'
       self.file_write('install.sh', util.shell_add_echo(self.install_script))
@@ -147,14 +148,14 @@ tmux a
       time.sleep(u.RETRY_INTERVAL_SEC)
 
   # TODO: also chmod the file so that 755 files remain 755
-  def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
+  def upload(self, local_fn, remote_fn='', dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
     self._log('uploading ' + local_fn)
     sftp = self.ssh_client.open_sftp()
 
-    if remote_fn is None:
+    if not remote_fn:
       remote_fn = os.path.basename(local_fn)
     if dont_overwrite and self.file_exists(remote_fn):
       self._log("Remote file %s exists, skipping" % (remote_fn,))
@@ -166,10 +167,10 @@ tmux a
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
       sftp.put(local_fn, remote_fn)
 
-  def download(self, remote_fn, local_fn=None):
+  def download(self, remote_fn, local_fn=''):
     self._log("downloading %s" % remote_fn)
     sftp = self.ssh_client.open_sftp()
-    if local_fn is None:
+    if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self._log("downloading %s to %s" % (remote_fn, local_fn))
     sftp.get(remote_fn, local_fn)
@@ -313,7 +314,7 @@ def maybe_create_resources():
 
 
 def set_aws_environment():
-  """Sets current zone/region environment variables. Uses """
+  """Sets current zone/region environment variables.  """
   current_zone = os.environ.get('NCLUSTER_ZONE', '')
   current_region = os.environ.get('AWS_DEFAULT_REGION', '')
 
@@ -343,29 +344,58 @@ def set_aws_environment():
   util.log(f"Using account {u.get_account_number()}, zone {current_zone}")
 
 
-def make_task(name: str = None,
-              run_name: str = None,
-              install_script: str = '',
-              # image_name='Deep Learning AMI (Ubuntu) Version 12.0',
-              image_name: str = '',
-              instance_type: str = 't3.micro') -> Task:
+def make_task(
+        name: str = '',
+        run_name: str = '',
+        install_script: str = '',
+        instance_type: str = '',
+        image_name: str = '',
+        preemptible: Union[None, bool] = None,
+) -> Task:
+  """
+  Create task on AWS
+
+  Args:
+    name: see backend.make_task
+    run_name: see backend.make_task
+    install_script: see backend.make_task
+    instance_type: instance type to use, ie t3.micro, defaults to $NCLUSTER_INSTANCE
+    image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE
+    preemptible: use cheaper preemptible/spot instances
+
+  Returns:
+
+  """
   set_aws_environment()
   maybe_create_resources()
 
   if not name:
     name = f"unnamed-{util.random_id()}"
-  instance = u.lookup_instance(name)  # todo: also add kwargs
-  maybe_start_instance(instance)
 
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
                                 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2')
     util.log("Using image ", image_name)
+
+  if preemptible is None:
+    preemptible = os.environ.get('NCLUSTER_PREEMPTIBLE', False)
+    preemptible = bool(preemptible)
+    if preemptible:
+      util.log("Using preemptible instances")
+
+  if not instance_type:
+    instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
+    util.log("Using instance ", instance_type)
+
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
   subnet = u.get_subnet()
   ec2 = u.get_ec2_resource()
+
+  instance = u.lookup_instance(name, instance_type, image_name)  # todo: also add kwargs
+  maybe_start_instance(instance)
+
 
   # create the instance if not present
   if not instance:
@@ -414,7 +444,26 @@ def make_task(name: str = None,
   return task
 
 
-def make_job(name, num_tasks=0, run_name=None, **kwargs) -> Job:
+def make_job(
+        name: str = '',
+        run_name: str = '',
+        num_tasks: int = 0,
+        install_script: str = '',
+        instance_type: str = '',
+        image_name: str = '',
+        **kwargs) -> Job:
+  """
+  Args:
+    name: see backend.make_task
+    run_name: see backend.make_task
+    num_tasks: number of tasks to launch
+    install_script: see make_task
+    instance_type: see make_task
+    image_name: see make_task
+
+  Returns:
+
+  """
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
   assert name.count(
@@ -429,7 +478,8 @@ def make_job(name, num_tasks=0, run_name=None, **kwargs) -> Job:
 
   def make_task_fn(i: int):
     try:
-      tasks[i] = make_task(f"{i}.{name}", **kwargs)
+      tasks[i] = make_task(f"{i}.{name}", run_name=run_name, install_script=install_script,
+                           instance_type=instance_type, image_name=image_name, **kwargs)
     except Exception as e:
       exceptions.append(e)
 
