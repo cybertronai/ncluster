@@ -81,6 +81,16 @@ def random_id(N=5):
   return ''.join(random.choices(string.ascii_lowercase + string.digits, k=N))
 
 
+def alphanumeric_hash(s: str, size=5):
+  """Short alphanumeric string derived from hash of given string"""
+  import hashlib
+  import base64
+  hash_object = hashlib.md5(s.encode('ascii'))
+  s = base64.b32encode(hash_object.digest())
+  result = s[:size].decode('ascii').lower()
+  print(f"Result for {s} is {result}")
+  return result
+
 def reverse_taskname(name: str) -> str:
   """
   Reverses components in the name of task. Reversed convention is used for filenames since

@@ -369,8 +369,10 @@ def make_task(
   set_aws_environment()
   maybe_create_resources()
 
+  # if name not specified, use name which is the same across script invocations
   if not name:
-    name = f"unnamed-{util.random_id()}"
+    script_id = util.alphanumeric_hash(sys.argv[0])
+    name = f"unnamed-{script_id}"
 
   if not run_name:
     run_name = f'default-{name}'

@@ -42,7 +42,7 @@ def make_task(name: str = '',
               run_name: str = '',
               install_script: str = '',
               **kwargs) -> backend.Task:
-  return _backend.make_task(name, run_name, install_script, **kwargs)
+  return _backend.make_task(name=name, run_name=run_name, install_script=install_script, **kwargs)
 
 
 def make_job(name: str = '',
