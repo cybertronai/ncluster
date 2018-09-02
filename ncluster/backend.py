@@ -12,6 +12,18 @@ from . import util
 
 LOGDIR_ROOT: str = None  # location of logdir for this backend
 
+
+def get_logdir_root():
+  raise NotImplementedError()  # this must be implemented in concrete backends
+
+
+def set_global_logdir_root(logdir_root):
+  """Globally changes logdir root for all runs."""
+  raise NotImplementedError()  # this must be implemented in concrete backends
+  global LOGDIR_ROOT
+  LOGDIR_ROOT = logdir_root
+
+
 """
 backend = aws_backend # alternatively, backend=tmux_backend to launch jobs locally in separate tmux sessions
 run = backend.make_run("helloworld")  # sets up /efs/runs/helloworld
@@ -31,12 +43,6 @@ print("To interact with workers: %s" %(worker_job.connect_instructions))
 To reconnect to existing job:
 
 """
-
-
-def _set_global_logdir_root(logdir_root):
-  """Globally changes logdir root for all runs."""
-  global LOGDIR_ROOT
-  LOGDIR_ROOT = logdir_root
 
 
 def _current_timestamp() -> str:
@@ -77,9 +83,6 @@ class Task:
   @property
   def run_name(self):
     return self.job.run_.name
-
-  def get_logdir_root(self):
-    raise NotImplementedError()  # this must be overridded by children for custom backend logdir location
 
   def is_chief(self):
     return self.job.tasks.index(self) == 0 and self.job.is_chief()
@@ -330,3 +333,15 @@ class Run:
   #     message = message % args
   #
   #   print("%s %s: %s" % (ts, self.name, message))
+
+
+def make_task(**kwargs) -> Task:
+  raise NotImplementedError()
+
+
+def make_job(**kwargs) -> Job:
+  raise NotImplementedError()
+
+
+def make_run(**kwargs) -> Run:
+  raise NotImplementedError()

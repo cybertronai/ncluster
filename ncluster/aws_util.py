@@ -208,9 +208,8 @@ def get_zones():
     messages = avail_response['Messages']
     zone = avail_response['ZoneName']
     state = avail_response['State']
-    assert not messages, "zone %s is broken? Has messages %s" % (zone, messages)
-    assert state == 'available', "zone %s is broken? Has state %s" % (
-    zone, state)
+    assert not messages, f"zone {zone} is broken? Has messages {messages}"
+    assert state == 'available', f"zone {zone} is broken? Has state {state}"
     zones.append(zone)
   return zones
 
@@ -305,7 +304,7 @@ def lookup_image(wildcard):
 
 # TODO: validate image_name
 def lookup_instance(name: str, instance_type: str = '', _image_name: str = '',
-                    states: tuple = ('running', 'stopped')) -> object:
+                    states: tuple = ('running', 'stopped')):
   """Looks up AWS instance for a given AWS instance name and current user, like
    simple.worker. If no instance found, returns None. """
 

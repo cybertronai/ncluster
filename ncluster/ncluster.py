@@ -2,12 +2,13 @@ from . import aws_backend
 from . import local_backend
 from . import backend  # TODO: remove?
 from . import util
+from . import aws_util as u
 
 util.install_pdb_handler()  # CTRL+\ drops into pdb
 
 import collections
 
-_backend: backend = None
+_backend: type(backend) = backend
 
 
 def set_backend(backend_name: str):
@@ -58,6 +59,21 @@ def make_run(name: str = '', **kwargs) -> backend.Run:
   return _backend.make_run(name, **kwargs)
 
 
+def get_logdir_root():
+  return _backend.get_logdir_root()
+
+
+def set_global_logdir_root(logdir_root):
+  return _backend.set_global_logdir_root(logdir_root)
+
+
+def get_zone():
+  if _backend != local_backend:
+    return u.get_zone()
+  else:
+    return 'local'
+
+# TODO: remove?
 def join(things_to_join):
   if isinstance(things_to_join, collections.Iterable):
     for thing in things_to_join:

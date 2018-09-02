@@ -15,6 +15,15 @@ LOGDIR_ROOT = os.environ[
                 'HOME'] + '/ncluster/runs'  # use local instead of /tmp because /tmp gets wiped
 
 
+def get_logdir_root():
+  return LOGDIR_ROOT
+
+
+def set_global_logdir_root(logdir_root):
+  """Globally changes logdir root for all runs."""
+  global LOGDIR_ROOT
+  LOGDIR_ROOT = logdir_root
+
 # TODO: use separate session for each task, for parity with AWS job launcher
 
 
@@ -107,9 +116,6 @@ class Task(backend.Task):
   def _run_raw(self, cmd):
     """Runs command directly, skipping tmux interface"""
     os.system(cmd)
-
-  def get_logdir_root(self):
-    return LOGDIR_ROOT
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it

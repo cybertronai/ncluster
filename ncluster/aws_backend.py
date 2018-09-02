@@ -4,6 +4,7 @@
 # TODO: fix remote_fn must be absolute for uploading with check_with_existing
 import os
 import shlex
+import signal
 import sys
 import threading
 import time
@@ -15,9 +16,19 @@ from . import util
 from . import aws_create_resources as create_lib
 
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
-LOGDIR_ROOT = '/ncluster/runs'
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
 NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region
+LOGDIR_ROOT = '/ncluster/runs'
+
+
+def get_logdir_root():
+  return LOGDIR_ROOT
+
+
+def set_global_logdir_root(logdir_root):
+  """Globally changes logdir root for all runs."""
+  global LOGDIR_ROOT
+  LOGDIR_ROOT = logdir_root
 
 
 class Task(backend.Task):
@@ -97,9 +108,6 @@ tmux a
       return 'ok' in self.file_read(self._initialized_fn)
     except Exception:
       return False
-
-  def get_logdir_root(self):
-    return LOGDIR_ROOT
 
   def _setup_tmux(self):
     self._log("Setting up tmux")
@@ -268,7 +276,7 @@ def maybe_start_instance(instance):
     instance.start()
     while True:
       print(
-        "Waiting forever for instances to start. TODO: replace with proper wait loop")
+        "Waiting  forever for instances to start. TODO: replace with proper wait loop")
       time.sleep(10)
 
 
@@ -398,9 +406,9 @@ def make_task(
   subnet = u.get_subnet()
   ec2 = u.get_ec2_resource()
 
-  instance = u.lookup_instance(name, instance_type, image_name)  # todo: also add kwargs
+  instance = u.lookup_instance(name, instance_type,
+                               image_name)  # todo: also add kwargs
   maybe_start_instance(instance)
-
 
   # create the instance if not present
   if not instance:
@@ -428,12 +436,28 @@ def make_task(
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
 
+    # Use high throughput disk (0.065/iops-month = about $1/hour)
+    if 'NCLUSTER_AWS_FAST_ROOTDISK' in os.environ:
+      ebs = {
+        'VolumeSize': 500,
+        'VolumeType': 'io1',
+        'Iops': 11500
+      }
+
+      args['BlockDeviceMappings'] = [{
+        'DeviceName': '/dev/sda1',
+        'Ebs': ebs
+      }]
+
+    instances = []
     try:
       instances = ec2.create_instances(**args)
     except Exception as e:
-      print(f"Instance creation for {name} failed with ({e})")
-      print("You can change availability zone using export NCLUSTER_ZONE=...")
-      sys.exit()
+      util.log(f"Instance creation for {name} failed with ({e})")
+      util.log(
+        "You can change availability zone using export NCLUSTER_ZONE=...")
+      util.log("Terminating")
+      os.kill(os.getpid(), signal.SIGINT)  # sys.exit() doesn't inside thread
 
     assert instances, f"ec2.create_instances returned {instances}"
     util.log(f"Allocated {len(instances)} instances")
@@ -479,15 +503,18 @@ def make_job(
 
   # make tasks in parallel
   exceptions = []
-  tasks = [backend.Task()] * num_tasks
+  tasks = [backend.Task()] * num_tasks  # dummy tasks to appease type-checker
 
   def make_task_fn(i: int):
     try:
-      tasks[i] = make_task(f"{i}.{name}", run_name=run_name, install_script=install_script,
-                           instance_type=instance_type, image_name=image_name, **kwargs)
+      tasks[i] = make_task(f"{i}.{name}", run_name=run_name,
+                           install_script=install_script,
+                           instance_type=instance_type, image_name=image_name,
+                           **kwargs)
     except Exception as e:
       exceptions.append(e)
 
+  util.log("Creating threads")
   threads = [threading.Thread(name=f'make_task_{i}',
                               target=make_task_fn, args=[i])
              for i in range(num_tasks)]
@@ -495,6 +522,7 @@ def make_job(
     thread.start()
   for thread in threads:
     thread.join()
+  print("Exception are ", exceptions)
   if exceptions:
     raise exceptions[0]
 
