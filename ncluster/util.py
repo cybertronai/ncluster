@@ -88,7 +88,6 @@ def alphanumeric_hash(s: str, size=5):
   hash_object = hashlib.md5(s.encode('ascii'))
   s = base64.b32encode(hash_object.digest())
   result = s[:size].decode('ascii').lower()
-  print(f"Result for {s} is {result}")
   return result
 
 def reverse_taskname(name: str) -> str:

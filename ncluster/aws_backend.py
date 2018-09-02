@@ -43,7 +43,7 @@ class Task(backend.Task):
 
     # heuristic to tell if I'm using Amazon image name
     # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
-    if 'amzn' in image_name or 'amazon' in image_name:
+    if 'amzn' in image_name.lower() or 'amazon' in image_name.lower():
       self._log('Detected Amazon Linux image')
       self._linux_type = 'amazon'
     self.run_counter = 0
