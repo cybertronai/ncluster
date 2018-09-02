@@ -57,8 +57,9 @@ class Task(backend.Task):
     print('name is', name)
     tmpdir = f"{util.reverse_taskname(name)}.{os.getpid()}.{util.now_micros()}"
     self.taskdir = f"{TASKDIR_ROOT}/{tmpdir}"
-    self.local_scratch = f"{SCRATCH_ROOT}/{tmpdir}"
-    self.remote_scratch = f"{SCRATCH_ROOT}/{tmpdir}"
+    launch_id = util.random_id()
+    self.local_scratch = f"{SCRATCH_ROOT}/{tmpdir}-{launch_id}"
+    self.remote_scratch = f"{SCRATCH_ROOT}/{tmpdir}-{launch_id}"
 
     self._log(f"Creating taskdir {self.taskdir}")
     self._run_raw('mkdir -p ' + self.taskdir)
@@ -121,7 +122,7 @@ class Task(backend.Task):
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    self._log('uploading ' + local_fn)
+    self._log('uploading ' + local_fn + ' to ' + remote_fn)
 
     if remote_fn is None:
       remote_fn = os.path.basename(local_fn)

@@ -367,7 +367,7 @@ def ssh_to_task(task):
       ssh_client.connect(hostname=hostname, username=username, pkey=pkey)
       break
     except Exception as e:
-      print(f'Exception connecting to host via ssh (could be a timeout): {e}')
+      print(f'{task.name}: Exception connecting to host via ssh (could be a timeout): {e}')
       time.sleep(RETRY_INTERVAL_SEC)
 
   return ssh_client

@@ -145,7 +145,8 @@ class Task:
     stderr_fn = f"{self.remote_scratch}/{self.run_counter+1}.stderr"
     cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
 
-    status = self.run(cmd2, async, ignore_errors=True)
+    assert not async, "Getting output doesn't work with async"
+    status = self.run(cmd2, False, ignore_errors=True)
     stdout = self.file_read(stdout_fn)
     stderr = self.file_read(stderr_fn)
 

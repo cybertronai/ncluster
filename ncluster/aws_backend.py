@@ -59,8 +59,9 @@ class Task(backend.Task):
       self._linux_type = 'amazon'
     self.run_counter = 0
 
-    self.local_scratch = f"{TMPDIR}/{name}"
-    self.remote_scratch = f"{TMPDIR}/{name}"
+    launch_id = util.random_id()
+    self.local_scratch = f"{TMPDIR}/{name}-{launch_id}"
+    self.remote_scratch = f"{TMPDIR}/{name}-{launch_id}"
 
     os.system('mkdir -p ' + self.local_scratch)
 
@@ -160,7 +161,7 @@ tmux a
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    self._log('uploading ' + local_fn)
+    self._log('uploading ' + local_fn + ' to ' + remote_fn)
     sftp = self.ssh_client.open_sftp()
 
     if not remote_fn:
@@ -379,7 +380,8 @@ def make_task(
 
   # if name not specified, use name which is the same across script invocations
   if not name:
-    script_id = util.alphanumeric_hash(sys.argv[0])
+    main_script = os.path.abspath(sys.argv[0])
+    script_id = util.alphanumeric_hash(main_script+instance_type+image_name)
     name = f"unnamed-{script_id}"
 
   if not run_name:
