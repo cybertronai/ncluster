@@ -6,6 +6,7 @@ import sys
 import time
 from collections import Iterable
 from collections import OrderedDict
+import paramiko
 
 import boto3
 
@@ -97,7 +98,9 @@ def get_efs_dict():
   result = OrderedDict()
   for efs_response in response['FileSystems']:
     fs_id = efs_response['FileSystemId']
-    tag_response = efs_client.describe_tags(FileSystemId=fs_id)
+
+    tag_response = call_with_retries(efs_client.describe_tags, "efs_client.describe_tags",
+                                     FileSystemId=fs_id)
     assert is_good_response(tag_response)
     key = get_name(tag_response['Tags'])
     if not key or key == EMPTY_NAME:  # skip EFS's without a name
@@ -344,13 +347,12 @@ def lookup_instance(name: str, instance_type: str = '', _image_name: str = '',
       return result[0]
 
 
-def ssh_to_task(task):
+def ssh_to_task(task) -> paramiko.SSHClient:
   """Create ssh connection to task's machine
 
   returns Paramiko SSH client connected to host.
 
   """
-  import paramiko
 
   username = task.ssh_username
   hostname = task.public_ip
@@ -362,12 +364,16 @@ def ssh_to_task(task):
   ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
   assert ssh_client
 
+  counter = 1
   while True:
     try:
       ssh_client.connect(hostname=hostname, username=username, pkey=pkey)
+      if counter % 11 == 0:  # occasionally re-obtain public ip, machine could've gotten restarted
+        hostname = task.public_ip
       break
     except Exception as e:
-      print(f'{task.name}: Exception connecting to host via ssh (could be a timeout): {e}')
+      print(
+        f'{task.name}: Exception connecting to {hostname} via ssh (could be a timeout): {e}')
       time.sleep(RETRY_INTERVAL_SEC)
 
   return ssh_client
@@ -554,6 +560,20 @@ def get_instance_property(instance, property_name):
   return value
 
 
+def call_with_retries(method, debug_string='', **kwargs):
+  while True:
+    try:
+      value = method(**kwargs)
+      assert value is not None, f"{debug_string} was None"
+      break
+    except Exception as e:
+      print(f"retrieving {debug_string} failed with {e}, retrying")
+      time.sleep(RETRY_INTERVAL_SEC)
+      continue
+
+  return value
+
+
 def get_ec2_resource():
   return get_session().resource('ec2')
 
@@ -607,34 +627,6 @@ def get_name(tags_or_instance_or_id):
   return names[0]
 
 
-# augmented SFTP client that can transfer directories, from
-# https://stackoverflow.com/a/19974994/419116
-def _put_dir(sftp, source, target):
-  """ Uploads the contents of the source directory to the target path. The
-            target directory needs to exists. All subdirectories in source are
-            created under target.
-        """
-
-  def _safe_mkdir(path, mode=511, ignore_existing=True):
-    """ Augments mkdir by adding an option to not fail if the folder exists  """
-    try:
-      sftp.mkdir(path, mode)
-    except IOError:
-      if ignore_existing:
-        pass
-      else:
-        raise
-
-  assert os.path.isdir(source)
-  _safe_mkdir(target)
-
-  for item in os.listdir(source):
-    if os.path.isfile(os.path.join(source, item)):
-      sftp.put(os.path.join(source, item), os.path.join(target, item))
-    else:
-      _safe_mkdir(f'{target}/{item}')
-      _put_dir(sftp, os.path.join(source, item), f'{target}/{item}')
-
 
 def wait_until_available(resource):
   """Waits until interval state becomes 'available'"""
@@ -643,3 +635,42 @@ def wait_until_available(resource):
     if resource.state == 'available':
       break
     time.sleep(RETRY_INTERVAL_SEC)
+
+
+def maybe_create_placement_group(name='', max_retries=10):
+  """Creates placement group or reuses existing one. Crash if unable to create
+    placement group. If name is empty, ignores request."""
+
+  if not name:
+    return
+
+  client = get_ec2_client()
+  try:
+    client.describe_placement_groups(GroupNames=[name])
+  except Exception as e:
+    print("Creating placement group: " + name)
+    res = client.create_placement_group(GroupName=name, Strategy='cluster')
+
+  counter = 0
+  while True:
+    try:
+      res = client.describe_placement_groups(GroupNames=[name])
+      res_entry = res['PlacementGroups'][0]
+      if res_entry['State'] == 'available':
+        print("Found placement group: " + name)
+        assert res_entry['Strategy'] == 'cluster'
+        break
+    except Exception as e:
+      print("Got exception: %s" % (e,))
+    counter += 1
+    if counter >= max_retries:
+      assert False, 'Failed to create placement group ' + name
+    time.sleep(RETRY_INTERVAL_SEC)
+
+
+# https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-groups.html#concepts-placement-groups
+def instance_supports_placement_groups(instance_type: str):
+  regex = re.compile(
+    "^(m4|m5|m5d|c3|c4|c5|c5d|cc2.8xlarge|cr1.8xlarge|r3|r4|r5|r5d|x1|x1e|z1d|d2|h1|hs1.8xlarge|i2|i3|i3.metal|f1|g2|g3|p2|p3).*$",
+    re.IGNORECASE)
+  return regex.match(instance_type)
