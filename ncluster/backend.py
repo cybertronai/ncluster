@@ -159,12 +159,12 @@ class Task:
 
     return stdout, stderr
 
-  def wait_for_file(self, fn, max_wait_sec=600, check_interval=0.02):
+  def wait_for_file(self, fn, max_wait_sec=3600*24*365, check_interval=0.02):
     print("Waiting for file", fn)
     start_time = time.time()
     while True:
       if time.time() - start_time > max_wait_sec:
-        assert False, "Timeout %s exceeded for %s" % (max_wait_sec, fn)
+        assert False, f"Timeout exceeded ({max_wait_sec} sec) for {fn}"
       if not self.file_exists(fn):
         time.sleep(check_interval)
         continue
