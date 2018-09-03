@@ -9,26 +9,19 @@ import sys
 import threading
 import time
 from typing import Union
+import paramiko
 
 from . import backend
 from . import aws_util as u
 from . import util
 from . import aws_create_resources as create_lib
 
+from . import ncluster_globals
+
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
 NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region
 LOGDIR_ROOT = '/ncluster/runs'
-
-
-def get_logdir_root():
-  return LOGDIR_ROOT
-
-
-def set_global_logdir_root(logdir_root):
-  """Globally changes logdir root for all runs."""
-  global LOGDIR_ROOT
-  LOGDIR_ROOT = logdir_root
 
 
 class Task(backend.Task):
@@ -55,7 +48,7 @@ class Task(backend.Task):
     # heuristic to tell if I'm using Amazon image name
     # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
     if 'amzn' in image_name.lower() or 'amazon' in image_name.lower():
-      self._log('Detected Amazon Linux image')
+      self.log('Detected Amazon Linux image')
       self._linux_type = 'amazon'
     self.run_counter = 0
 
@@ -82,9 +75,9 @@ class Task(backend.Task):
     self._mount_efs()
 
     if self._is_initialized_fn_present():
-      self._log("reusing previous initialized state")
+      self.log("reusing previous initialized state")
     else:
-      self._log("running install script")
+      self.log("running install script")
 
       # bin/bash needed to make self-executable or use with UserData
       self.install_script = '#!/bin/bash\n' + self.install_script
@@ -99,19 +92,19 @@ class Task(backend.Task):
 ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
 tmux a
 """.strip()
-    self._log("Initialize complete")
-    self._log(self.connect_instructions)
+    self.log("Initialize complete")
+    self.log(self.connect_instructions)
 
   # todo: replace with file_read
   def _is_initialized_fn_present(self):
-    self._log("Checking for initialization status")
+    self.log("Checking for initialization status")
     try:
       return 'ok' in self.file_read(self._initialized_fn)
     except Exception:
       return False
 
   def _setup_tmux(self):
-    self._log("Setting up tmux")
+    self.log("Setting up tmux")
 
     self._tmux_window = f"{self.name}-main:0".replace('.', '=')
     tmux_session = self._tmux_window[:-2]
@@ -131,7 +124,7 @@ tmux a
     self._can_run = True
 
   def _mount_efs(self):
-    self._log("Mounting EFS")
+    self.log("Mounting EFS")
     region = u.get_region()
     efs_id = u.get_efs_dict()[u.get_prefix()]
     dns = f"{efs_id}.efs.{region}.amazonaws.com"
@@ -152,7 +145,7 @@ tmux a
 
   def join(self):
     while not self._is_initialized_fn_present():
-      self._log(
+      self.log(
         f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
       time.sleep(u.RETRY_INTERVAL_SEC)
 
@@ -161,27 +154,51 @@ tmux a
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    self._log('uploading ' + local_fn + ' to ' + remote_fn)
-    sftp = self.ssh_client.open_sftp()
+    self.log('uploading ' + local_fn + ' to ' + remote_fn)
+    sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
+
+    # augmented SFTP client that can transfer directories, from
+    # https://stackoverflow.com/a/19974994/419116
+    def _put_dir(source, target):
+      """ Uploads the contents of the source directory to the target path."""
+      def _safe_mkdir(path, mode=511, ignore_existing=True):
+        """ Augments mkdir by adding an option to not fail if the folder exists  """
+        try:
+          sftp.mkdir(path, mode)
+        except IOError:
+          if ignore_existing:
+            pass
+          else:
+            raise
+
+      assert os.path.isdir(source)
+      _safe_mkdir(target)
+
+      for item in os.listdir(source):
+        if os.path.isfile(os.path.join(source, item)):
+          sftp.put(os.path.join(source, item), os.path.join(target, item))
+        else:
+          _safe_mkdir(f'{target}/{item}')
+          _put_dir(sftp, f'{source}/{item}', f'{target}/{item}')
 
     if not remote_fn:
       remote_fn = os.path.basename(local_fn)
     if dont_overwrite and self.file_exists(remote_fn):
-      self._log("Remote file %s exists, skipping" % (remote_fn,))
+      self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
     if os.path.isdir(local_fn):
-      u._put_dir(sftp, local_fn, remote_fn)
+      _put_dir(local_fn, remote_fn)
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
       sftp.put(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
-    self._log("downloading %s" % remote_fn)
-    sftp = self.ssh_client.open_sftp()
+    self.log("downloading %s" % remote_fn)
+    sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
-      self._log("downloading %s to %s" % (remote_fn, local_fn))
+      self.log("downloading %s to %s" % (remote_fn, local_fn))
     sftp.get(remote_fn, local_fn)
 
   def file_exists(self, remote_fn):
@@ -198,15 +215,16 @@ tmux a
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
+  # TODO: build a pstree and warn if trying to run something while main tmux bash has a subprocess running
   def run(self, cmd, async=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.5) -> int:
 
-    self.run_counter += 1
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
-    self._log("tmux> %s", cmd)
+    self.run_counter += 1
+    self.log("tmux> %s", cmd)
 
     cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
     status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
@@ -224,19 +242,23 @@ tmux a
     if async:
       return 0
 
-    self.wait_for_file(status_fn)
+    self.wait_for_file(status_fn, max_wait_sec=60)
+    while not self.file_exists(status_fn):
+      self.log(f"Still waiting for {cmd}")
+      self.wait_for_file(status_fn, max_wait_sec=60)
     contents = self.file_read(status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(check_interval)
-    status = int(self.file_read(status_fn).strip())
+      contents = self.file_read(status_fn)
+    status = int(contents.strip())
 
     if status != 0:
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
-        self._log(f"Warning: command {cmd} returned status {status}")
+        self.log(f"Warning: command {cmd} returned status {status}")
 
     return status
 
@@ -257,7 +279,7 @@ tmux a
     stderr_str = stderr.read().decode()
     # TODO: use shell return status to see if it failed
     if 'command not found' in stdout_str or 'command not found' in stderr_str:
-      self._log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
+      self.log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
       assert False, "run_ssh command failed"
     return stdout_str, stderr_str
 
@@ -282,23 +304,29 @@ def maybe_start_instance(instance):
 
 
 # TODO: call tasks without names "unnamed-123123"
-def maybe_create_resources():
+def maybe_create_resources(task: Task = None):
   """Use heuristics to decide to possibly create resources"""
+
+  def log(*args):
+    if task:
+      task.log(*args)
+    else:
+      util.log(*args)
 
   def should_create_resources():
     """Check if gateway, keypair, vpc exist."""
     prefix = u.get_prefix()
     if u.get_keypair_name() not in u.get_keypair_dict():
-      print(f"Missing {u.get_keypair_name()} keypair, creating resources")
+      log(f"Missing {u.get_keypair_name()} keypair, creating resources")
       return True
     vpcs = u.get_vpc_dict()
     if prefix not in vpcs:
-      print(f"Missing {prefix} vpc, creating resources")
+      log(f"Missing {prefix} vpc, creating resources")
       return True
     vpc = vpcs[prefix]
     gateways = u.get_gateway_dict(vpc)
     if prefix not in gateways:
-      print(f"Missing {prefix} gateway, creating resources")
+      log(f"Missing {prefix} gateway, creating resources")
       return True
     return False
 
@@ -310,10 +338,10 @@ def maybe_create_resources():
     pid, ts = open(AWS_LOCK_FN).read().split('-')
     pid = int(pid)
     ts = int(ts)
-    util.log(f"Skipping aws resource creation, another resource initiation was "
-             f"initiated {int(time.time()-ts)} seconds ago by "
-             f"{'this process' if pid==os.getpid() else pid}, delete lock file "
-             f"{AWS_LOCK_FN} if this is an error")
+    log(f"Skipping aws resource creation, another resource initiation was "
+        f"initiated {int(time.time()-ts)} seconds ago by "
+        f"{'this process' if pid==os.getpid() else pid}, delete lock file "
+        f"{AWS_LOCK_FN} if this is an error")
     return
 
   with open(AWS_LOCK_FN, 'w') as f:
@@ -360,6 +388,8 @@ def make_task(
         instance_type: str = '',
         image_name: str = '',
         preemptible: Union[None, bool] = None,
+        run_object: backend.Run = None,
+        task: backend.Task = None,
 ) -> Task:
   """
   Create task on AWS
@@ -371,17 +401,34 @@ def make_task(
     instance_type: instance type to use, ie t3.micro, defaults to $NCLUSTER_INSTANCE
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE
     preemptible: use cheaper preemptible/spot instances
+    run_object: if specified, group this task with others in this run
+    task: partially initialized Task object, use it for logging
 
   Returns:
 
   """
-  set_aws_environment()
-  maybe_create_resources()
 
-  # if name not specified, use name which is the same across script invocations
+  def log(*args):
+    if task:
+      task.log(*args)
+    else:
+      util.log(*args)
+  if not instance_type:
+    instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
+    log("Using instance " + instance_type)
+
+  set_aws_environment()
+  maybe_create_resources(task=task)
+  placement_group = ''
+  if run_object and u.instance_supports_placement_groups(instance_type):
+    placement_group = run_object.aws_placement_group_name
+    #    log(f"Launching into placement group {placement_group}")
+    u.maybe_create_placement_group(placement_group)
+
+  # if name not specified, use name which is the same across script invocations for given image/instance-type
   if not name:
     main_script = os.path.abspath(sys.argv[0])
-    script_id = util.alphanumeric_hash(main_script+instance_type+image_name)
+    script_id = util.alphanumeric_hash(main_script + instance_type + image_name)
     name = f"unnamed-{script_id}"
 
   if not run_name:
@@ -390,17 +437,13 @@ def make_task(
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
                                 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2')
-    util.log("Using image ", image_name)
+    log("Using image " + image_name)
 
   if preemptible is None:
     preemptible = os.environ.get('NCLUSTER_PREEMPTIBLE', False)
     preemptible = bool(preemptible)
     if preemptible:
-      util.log("Using preemptible instances")
-
-  if not instance_type:
-    instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
-    util.log("Using instance ", instance_type)
+      log("Using preemptible instances")
 
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
@@ -414,7 +457,7 @@ def make_task(
 
   # create the instance if not present
   if not instance:
-    util.log(f"Allocating {instance_type} for task {name}")
+    log(f"Allocating {instance_type} for task {name}")
     args = {'ImageId': image.id,
             'InstanceType': instance_type,
             'MinCount': 1,
@@ -433,8 +476,9 @@ def make_task(
                                   'AssociatePublicIpAddress': True,
                                   'Groups': [security_group.id]}]
     placement_specs = {'AvailabilityZone': u.get_zone()}
+    if placement_group:
+      placement_specs['GroupName'] = placement_group
 
-    # if placement_group: placement_specs['GroupName'] = placement_group
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
 
@@ -455,14 +499,14 @@ def make_task(
     try:
       instances = ec2.create_instances(**args)
     except Exception as e:
-      util.log(f"Instance creation for {name} failed with ({e})")
-      util.log(
+      log(f"Instance creation for {name} failed with ({e})")
+      log(
         "You can change availability zone using export NCLUSTER_ZONE=...")
-      util.log("Terminating")
+      log("Terminating")
       os.kill(os.getpid(), signal.SIGINT)  # sys.exit() doesn't inside thread
 
     assert instances, f"ec2.create_instances returned {instances}"
-    util.log(f"Allocated {len(instances)} instances")
+    log(f"Allocated {len(instances)} instances")
     instance = instances[0]
 
   dummy_run = backend.Run(run_name)
@@ -500,18 +544,21 @@ def make_job(
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
-  set_aws_environment()
-  maybe_create_resources()
+  #  set_aws_environment()
+  #  maybe_create_resources()
+
+  run_object = backend.Run(run_name)
+  tasks = [backend.Task(f"{i}.{name}") for i in range(num_tasks)]
+  exceptions = []
 
   # make tasks in parallel
-  exceptions = []
-  tasks = [backend.Task()] * num_tasks  # dummy tasks to appease type-checker
-
   def make_task_fn(i: int):
     try:
       tasks[i] = make_task(f"{i}.{name}", run_name=run_name,
                            install_script=install_script,
                            instance_type=instance_type, image_name=image_name,
+                           run_object=run_object,
+                           task=tasks[i],
                            **kwargs)
     except Exception as e:
       exceptions.append(e)
@@ -528,9 +575,8 @@ def make_job(
   if exceptions:
     raise exceptions[0]
 
-  dummy_run = backend.Run(run_name)
-  job = Job(name, dummy_run, tasks, **kwargs)
-  dummy_run.jobs.append(job)
+  job = Job(name, run_object, tasks, **kwargs)
+  run_object.jobs.append(job)
   return job
 
 # def make_run(name, **kwargs):
