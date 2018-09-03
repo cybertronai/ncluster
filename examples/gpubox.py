@@ -10,8 +10,8 @@ import ncluster
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, default='gpubox',
                     help="instance name")
-parser.add_argument('--ami', type=str,
-                    default='Deep Learning AMI (Ubuntu) Version 12.0',
+parser.add_argument('--image-name', type=str,
+                    default='', # 'Deep Learning AMI (Ubuntu) Version 12.0',
                     help="name of AMI to use ")
 parser.add_argument('--instance-type', type=str, default='g3.4xlarge',
                     help="type of instance")
@@ -24,7 +24,8 @@ module_path = os.path.dirname(os.path.abspath(__file__))
 
 def main():
   task = ncluster.make_task(name=args.name,
-                            instance_type=args.instance_type)
+                            instance_type=args.instance_type,
+                            image_name=args.image_name)
   
   # upload notebook config with provided password
   jupyter_config_fn = _create_jupyter_config(args.password)

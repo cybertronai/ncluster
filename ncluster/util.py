@@ -28,6 +28,15 @@ def now_millis(absolute=False) -> int:
   return millis - EPOCH_MICROS/1000
 
 
+def current_timestamp() -> str:
+  # timestamp format from https://github.com/tensorflow/tensorflow/blob/155b45698a40a12d4fef4701275ecce07c3bb01a/tensorflow/core/platform/default/logging.cc#L80
+  current_seconds = time.time()
+  remainder_micros = int(1e6 * (current_seconds - int(current_seconds)))
+  time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_seconds))
+  full_time_str = "%s.%06d" % (time_str, remainder_micros)
+  return full_time_str
+
+
 def log_error(*args, **kwargs):
   print(f"Error encountered {args} {kwargs}")
 
