@@ -6,23 +6,14 @@ import subprocess
 import sys
 import time
 
+from . import ncluster_globals
 from . import backend
 from . import util
 
 TASKDIR_ROOT = '/tmp/ncluster/task'
 SCRATCH_ROOT = '/tmp/ncluster/scratch'
-LOGDIR_ROOT = os.environ[
-                'HOME'] + '/ncluster/runs'  # use local instead of /tmp because /tmp gets wiped
+LOGDIR_ROOT = os.environ['HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
 
-
-def get_logdir_root():
-  return LOGDIR_ROOT
-
-
-def set_global_logdir_root(logdir_root):
-  """Globally changes logdir root for all runs."""
-  global LOGDIR_ROOT
-  LOGDIR_ROOT = logdir_root
 
 # TODO: use separate session for each task, for parity with AWS job launcher
 
@@ -61,10 +52,10 @@ class Task(backend.Task):
     self.local_scratch = f"{SCRATCH_ROOT}/{tmpdir}-{launch_id}"
     self.remote_scratch = f"{SCRATCH_ROOT}/{tmpdir}-{launch_id}"
 
-    self._log(f"Creating taskdir {self.taskdir}")
+    self.log(f"Creating taskdir {self.taskdir}")
     self._run_raw('mkdir -p ' + self.taskdir)
 
-    self._log(f"Creating scratch {self.local_scratch}")
+    self.log(f"Creating scratch {self.local_scratch}")
     self._run_raw('rm -Rf ' + self.local_scratch)
     self._run_raw('mkdir -p ' + self.local_scratch)
     self._run_raw('mkdir -p ' + self.remote_scratch)
@@ -80,7 +71,7 @@ class Task(backend.Task):
     cmd = cmd.strip()
     if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
-    self._log("tmux> %s", cmd)
+    self.log("tmux> %s", cmd)
 
     cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
     status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
@@ -110,7 +101,7 @@ class Task(backend.Task):
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
-        self._log(f"Warning: command {cmd} returned status {status}")
+        self.log(f"Warning: command {cmd} returned status {status}")
 
     return status
 
@@ -122,12 +113,12 @@ class Task(backend.Task):
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    self._log('uploading ' + local_fn + ' to ' + remote_fn)
+    self.log('uploading ' + local_fn + ' to ' + remote_fn)
 
     if remote_fn is None:
       remote_fn = os.path.basename(local_fn)
     if dont_overwrite and self.file_exists(remote_fn):
-      self._log("Remote file %s exists, skipping" % (remote_fn,))
+      self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
     if not remote_fn.startswith('/'):

@@ -1,14 +1,22 @@
 from . import aws_backend
 from . import local_backend
-from . import backend  # TODO: remove?
+from . import backend
 from . import util
 from . import aws_util as u
-
-util.install_pdb_handler()  # CTRL+\ drops into pdb
-
 import collections
 
+from . import ncluster_globals
+
 _backend: type(backend) = backend
+
+
+def get_logdir_root() -> str:
+  return _backend.LOGDIR_ROOT
+
+
+def set_logdir_root(logdir_root):
+  """Globally changes logdir root for all runs."""
+  _backend.LOGDIR_ROOT = logdir_root
 
 
 def set_backend(backend_name: str):
@@ -21,6 +29,7 @@ def set_backend(backend_name: str):
     _backend = local_backend
   else:
     assert False, f"Unknown backend {backend_name}"
+  ncluster_globals.LOGDIR_ROOT = _backend.LOGDIR_ROOT
 
 
 def get_backend() -> str:
@@ -30,6 +39,13 @@ def get_backend() -> str:
 
 def get_backend_module() -> backend:
   return _backend
+
+
+def get_zone() -> str:
+  if _backend != local_backend:
+    return u.get_zone()
+  else:
+    return 'local'
 
 
 #  def make_run(name='', **kwargs):
@@ -43,7 +59,8 @@ def make_task(name: str = '',
               run_name: str = '',
               install_script: str = '',
               **kwargs) -> backend.Task:
-  return _backend.make_task(name=name, run_name=run_name, install_script=install_script, **kwargs)
+  return _backend.make_task(name=name, run_name=run_name,
+                            install_script=install_script, **kwargs)
 
 
 def make_job(name: str = '',
@@ -52,26 +69,25 @@ def make_job(name: str = '',
              install_script: str = '',
              **kwargs
              ) -> backend.Job:
+  """
+  Create a job using current backend. Blocks until all tasks are up and initialized.
+
+  Args:
+    name: name of the job
+    run_name: name of the run (auto-assigned if empty)
+    num_tasks: number of tasks
+    install_script: bash-runnable script
+    **kwargs:
+
+  Returns:
+    backend.Job
+  """
   return _backend.make_job(name, run_name, num_tasks, install_script, **kwargs)
 
 
 def make_run(name: str = '', **kwargs) -> backend.Run:
   return _backend.make_run(name, **kwargs)
 
-
-def get_logdir_root():
-  return _backend.get_logdir_root()
-
-
-def set_global_logdir_root(logdir_root):
-  return _backend.set_global_logdir_root(logdir_root)
-
-
-def get_zone():
-  if _backend != local_backend:
-    return u.get_zone()
-  else:
-    return 'local'
 
 # TODO: remove?
 def join(things_to_join):

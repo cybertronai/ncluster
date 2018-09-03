@@ -5,23 +5,13 @@ import threading
 import time
 from typing import List, Tuple, Any
 
+from . import ncluster_globals
 from . import util
 
 # aws_backend.py
 # local_backend.py
 
 LOGDIR_ROOT: str = None  # location of logdir for this backend
-
-
-def get_logdir_root():
-  raise NotImplementedError()  # this must be implemented in concrete backends
-
-
-def set_global_logdir_root(logdir_root):
-  """Globally changes logdir root for all runs."""
-  raise NotImplementedError()  # this must be implemented in concrete backends
-  global LOGDIR_ROOT
-  LOGDIR_ROOT = logdir_root
 
 
 """
@@ -45,15 +35,6 @@ To reconnect to existing job:
 """
 
 
-def _current_timestamp() -> str:
-  # timestamp format from https://github.com/tensorflow/tensorflow/blob/155b45698a40a12d4fef4701275ecce07c3bb01a/tensorflow/core/platform/default/logging.cc#L80
-  current_seconds = time.time()
-  remainder_micros = int(1e6 * (current_seconds - int(current_seconds)))
-  time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_seconds))
-  full_time_str = "%s.%06d" % (time_str, remainder_micros)
-  return full_time_str
-
-
 class Task:
   name: str
   ip: str
@@ -65,8 +46,8 @@ class Task:
   remote_scratch: str
   job: Any  # can't declare Job because of circular dependency
 
-  def __init__(self):
-    self.name = None
+  def __init__(self, name=''):
+    self.name = name
     self.instance = None
     self.install_script = None
     self.job = None
@@ -95,10 +76,11 @@ class Task:
     if self.job.run_.logdir_:
       return  # already created logdir
 
-    self._log("Creating logdir")
+    self.log("Creating logdir")
 
     # logdir root can differ between backends, hence get it from the actual backend being used
-    logdir_root = self.get_logdir_root()
+    logdir_root = ncluster_globals.LOGDIR_ROOT
+    assert logdir_root
 
     self.run(f'mkdir -p {logdir_root}')
     find_command = f'find {logdir_root} -maxdepth 1 -type d'
@@ -111,12 +93,12 @@ class Task:
     while logdir in stdout:
       counter += 1
       lll = f'{logdir_root}/{self.run_name}.{counter:02d}'
-      self._log(f'Warning, logdir {logdir} exists, deduping to {lll}')
+      self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
       logdir = lll
     self.run(f'mkdir -p {logdir}')
     self.job.run_.logdir_ = logdir
 
-  def run(self, cmd, async=False, ignore_errors=False):
+  def run(self, cmd: str, async=False, ignore_errors=False):
     """Runs command on given task."""
     raise NotImplementedError()
 
@@ -151,8 +133,8 @@ class Task:
     stderr = self.file_read(stderr_fn)
 
     if status > 0:
-      self._log(f"Warning: command '{cmd}' returned {status},"
-                f" stdout was '{stdout}' stderr was '{stderr}'")
+      self.log(f"Warning: command '{cmd}' returned {status},"
+               f" stdout was '{stdout}' stderr was '{stderr}'")
       if not ignore_errors:
         raise RuntimeError(f"Warning: command '{cmd}' returned {status},"
                            f" stdout was '{stdout}' stderr was '{stderr}'")
@@ -175,12 +157,18 @@ class Task:
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
     raise NotImplementedError()
 
-  def upload(self, local_fn, remote_fn='', dont_overwrite=False):
+  def upload(self, local_fn: str, remote_fn: str='', dont_overwrite: bool=False):
     """Uploads given file to the task. If remote_fn is not specified, dumps it
-    into task current directory with the same name."""
+    into task current directory with the same name.
+
+    Args:
+      local_fn: location of file locally
+      remote_fn: location of file on task
+      dont_overwrite: if True, will be no-op if target file exists
+      """
     raise NotImplementedError()
 
-  def download(self, remote_fn, local_fn=''):
+  def download(self, remote_fn: str, local_fn: str=''):
     """Downloads remote file to current directory."""
     raise NotImplementedError()
 
@@ -196,12 +184,12 @@ class Task:
     """Return true if file exists in task current directory."""
     raise NotImplementedError()
 
-  def _log(self, message, *args):
+  def log(self, message, *args):
     """Log to launcher console."""
     if args:
       message %= args
 
-    print(f"{_current_timestamp()} {self.name}: {message}")
+    print(f"{util.current_timestamp()} {self.name}: {message}")
 
 
 class Job:
@@ -262,6 +250,7 @@ class Job:
     return self._async_wrapper("run_with_output", *args, **kwargs)
 
   def upload(self, *args, **kwargs):
+    """See :py:func:`backend.Task.upload`"""
     return self._async_wrapper("upload", *args, **kwargs)
 
   def file_write(self, *args, **kwargs):
@@ -274,7 +263,10 @@ class Job:
 class Run:
   """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
   server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
-  event files. """
+  event files.
+  :ivar aws_placement_group_name: somedoc
+  """
+  aws_placement_group_name: str  # This is unique name used to place all tasks in the run together
   jobs: List[Job]
 
   def __init__(self, name='', jobs=None, **kwargs):
@@ -291,6 +283,7 @@ class Run:
     self.kwargs = kwargs
 
     self.logdir_ = None
+    self.aws_placement_group_name = name+'-'+util.random_id()
 
     # TODO: this back-linking logic may be unneeded
     for job in jobs:
@@ -336,13 +329,13 @@ class Run:
   #   print("%s %s: %s" % (ts, self.name, message))
 
 
-def make_task(**kwargs) -> Task:
+def make_task(**_kwargs) -> Task:
   raise NotImplementedError()
 
 
-def make_job(**kwargs) -> Job:
+def make_job(**_kwargs) -> Job:
   raise NotImplementedError()
 
 
-def make_run(**kwargs) -> Run:
+def make_run(**_kwargs) -> Run:
   raise NotImplementedError()
