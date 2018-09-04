@@ -89,6 +89,7 @@ class Task(backend.Task):
       assert self._is_initialized_fn_present()
 
     self.connect_instructions = f"""
+    To connect to {self.name}
 ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
 tmux a
 """.strip()
@@ -409,7 +410,7 @@ def make_task(
   """
 
   assert not preemptible, "Not implemented"
-  
+
   def log(*args):
     if task:
       task.log(*args)
@@ -577,7 +578,7 @@ def make_job(
   if exceptions:
     raise exceptions[0]
 
-  job = Job(name, run_object, tasks, **kwargs)
+  job = Job(name=name, run_object=run_object, tasks=tasks, **kwargs)
   run_object.jobs.append(job)
   return job
 

@@ -216,11 +216,11 @@ class Job:
 
   #  run_: Run
 
-  def __init__(self, name: str, run, tasks: List[Task] = None, **kwargs):
+  def __init__(self, name: str, run_object, tasks: List[Task] = None, **kwargs):
     if tasks is None:
       tasks = []
     self.name = name
-    self.run_ = run
+    self.run_ = run_object
     self.tasks = tasks
     self.kwargs = kwargs
     # TODO: maybe backlinking is not needed

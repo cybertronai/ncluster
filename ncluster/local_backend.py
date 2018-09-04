@@ -204,7 +204,7 @@ def make_job(name=None,
   tasks = [make_task(f"{i}.{name}") for i in range(num_tasks)]
 
   dummy_run = backend.Run(run_name)
-  job = backend.Job(name, dummy_run, tasks, **kwargs)
+  job = backend.Job(name=name, run_object=dummy_run, tasks=tasks, **kwargs)
   dummy_run.jobs.append(job)
   return job
 
