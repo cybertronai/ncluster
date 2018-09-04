@@ -645,11 +645,17 @@ def maybe_create_placement_group(name='', max_retries=10):
     return
 
   client = get_ec2_client()
-  try:
-    client.describe_placement_groups(GroupNames=[name])
-  except Exception as e:
-    print("Creating placement group: " + name)
-    res = client.create_placement_group(GroupName=name, Strategy='cluster')
+  while True:
+    try:
+      client.describe_placement_groups(GroupNames=[name])
+      break  # no Exception means group name was found
+    except Exception as e:
+      print("Creating placement group: " + name)
+      try:
+        res = client.create_placement_group(GroupName=name, Strategy='cluster')
+      except Exception as e:
+        # because of race can get InvalidPlacementGroup.Duplicate
+        pass
 
   counter = 0
   while True:
@@ -657,14 +663,13 @@ def maybe_create_placement_group(name='', max_retries=10):
       res = client.describe_placement_groups(GroupNames=[name])
       res_entry = res['PlacementGroups'][0]
       if res_entry['State'] == 'available':
-        print("Found placement group: " + name)
         assert res_entry['Strategy'] == 'cluster'
         break
     except Exception as e:
       print("Got exception: %s" % (e,))
     counter += 1
     if counter >= max_retries:
-      assert False, 'Failed to create placement group ' + name
+      assert False, f'Failed to create placement group {name} in {max_retries} attempts'
     time.sleep(RETRY_INTERVAL_SEC)
 
 
