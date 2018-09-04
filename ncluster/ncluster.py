@@ -82,7 +82,7 @@ def make_job(name: str = '',
   Returns:
     backend.Job
   """
-  return _backend.make_job(name, run_name, num_tasks, install_script, **kwargs)
+  return _backend.make_job(name, run_name=run_name, num_tasks=num_tasks, install_script=install_script, **kwargs)
 
 
 def make_run(name: str = '', **kwargs) -> backend.Run:
