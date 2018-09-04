@@ -648,6 +648,7 @@ def maybe_create_placement_group(name='', max_retries=10):
   while True:
     try:
       client.describe_placement_groups(GroupNames=[name])
+      print("Reusing placement group: " + name)
       break  # no Exception means group name was found
     except Exception as e:
       print("Creating placement group: " + name)

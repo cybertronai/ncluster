@@ -398,8 +398,8 @@ def make_task(
     name: see ncluster.make_task
     run_name: see ncluster.make_task
     install_script: see ncluster.make_task
-    instance_type: instance type to use, ie t3.micro, defaults to $NCLUSTER_INSTANCE
-    image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE
+    instance_type: instance type to use, defaults to $NCLUSTER_INSTANCE or t3.micro if unset
+    image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
     preemptible: use cheaper preemptible/spot instances
     run_object: if specified, group this task with others in this run
     task: partially initialized Task object, use it for logging
@@ -408,6 +408,8 @@ def make_task(
 
   """
 
+  assert not preemptible, "Not implemented"
+  
   def log(*args):
     if task:
       task.log(*args)

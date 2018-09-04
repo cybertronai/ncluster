@@ -13,7 +13,6 @@ from . import util
 
 LOGDIR_ROOT: str = None  # location of logdir for this backend
 
-
 """
 backend = aws_backend # alternatively, backend=tmux_backend to launch jobs locally in separate tmux sessions
 run = backend.make_run("helloworld")  # sets up /efs/runs/helloworld
@@ -141,23 +140,36 @@ class Task:
 
     return stdout, stderr
 
-  def wait_for_file(self, fn, max_wait_sec=3600*24*365, check_interval=0.02):
+  def wait_for_file(self, fn: str, max_wait_sec: int = 3600 * 24 * 365,
+                    check_interval: float = 0.02) -> bool:
+    """
+    Waits for file maximum of max_wait_sec. Returns True if file was detected within specified max_wait_sec
+    Args:
+      fn: filename on task machine
+      max_wait_sec: how long to wait in seconds
+      check_interval: how often to check in seconds
+    Returns:
+      False if waiting was was cut short by max_wait_sec limit, True otherwise
+    """
     print("Waiting for file", fn)
     start_time = time.time()
     while True:
       if time.time() - start_time > max_wait_sec:
-        assert False, f"Timeout exceeded ({max_wait_sec} sec) for {fn}"
+        util.log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
+        return False
       if not self.file_exists(fn):
         time.sleep(check_interval)
         continue
       else:
         break
+    return True
 
   def _run_raw(self, cmd):
     """Runs command directly on every task in the job, skipping tmux interface. Use if want to create/manage additional tmux sessions manually."""
     raise NotImplementedError()
 
-  def upload(self, local_fn: str, remote_fn: str='', dont_overwrite: bool=False):
+  def upload(self, local_fn: str, remote_fn: str = '',
+             dont_overwrite: bool = False):
     """Uploads given file to the task. If remote_fn is not specified, dumps it
     into task current directory with the same name.
 
@@ -168,7 +180,7 @@ class Task:
       """
     raise NotImplementedError()
 
-  def download(self, remote_fn: str, local_fn: str=''):
+  def download(self, remote_fn: str, local_fn: str = ''):
     """Downloads remote file to current directory."""
     raise NotImplementedError()
 
@@ -180,8 +192,14 @@ class Task:
     """Read contents of file and return it as string."""
     raise NotImplementedError()
 
-  def file_exists(self, fn):
-    """Return true if file exists in task current directory."""
+  def file_exists(self, fn) -> bool:
+    """Checks if fn exists on task
+
+    Args:
+      fn: filename local to task
+    Returns:
+      true if fn exists on task machine
+    """
     raise NotImplementedError()
 
   def log(self, message, *args):
@@ -283,7 +301,7 @@ class Run:
     self.kwargs = kwargs
 
     self.logdir_ = None
-    self.aws_placement_group_name = name+'-'+util.random_id()
+    self.aws_placement_group_name = name + '-' + util.random_id()
 
     # TODO: this back-linking logic may be unneeded
     for job in jobs:

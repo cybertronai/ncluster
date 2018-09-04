@@ -90,6 +90,7 @@ class Task(backend.Task):
       return 0
 
     self.wait_for_file(status_fn)
+    assert self.file_exists(status_fn)
     contents = self.file_read(status_fn)
 
     # if empty wait a bit to allow for race condition
