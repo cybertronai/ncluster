@@ -198,8 +198,9 @@ def get_region():
   return get_session().region_name
 
 
-def get_zone():
-  return os.environ['NCLUSTER_ZONE']
+def get_zone() -> str:
+  """Returns current zone, or empty string if it's unset."""
+  return os.environ.get('NCLUSTER_ZONE', '')
 
 
 def get_zones():
@@ -627,7 +628,6 @@ def get_name(tags_or_instance_or_id):
   return names[0]
 
 
-
 def wait_until_available(resource):
   """Waits until interval state becomes 'available'"""
   while True:
@@ -650,11 +650,11 @@ def maybe_create_placement_group(name='', max_retries=10):
       client.describe_placement_groups(GroupNames=[name])
       print("Reusing placement group: " + name)
       break  # no Exception means group name was found
-    except Exception as e:
+    except Exception:
       print("Creating placement group: " + name)
       try:
-        res = client.create_placement_group(GroupName=name, Strategy='cluster')
-      except Exception as e:
+        _response = client.create_placement_group(GroupName=name, Strategy='cluster')
+      except Exception:
         # because of race can get InvalidPlacementGroup.Duplicate
         pass
 
