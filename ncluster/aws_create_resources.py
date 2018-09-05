@@ -41,6 +41,7 @@ def network_setup():
   # from https://gist.github.com/nguyendv/8cfd92fc8ed32ebb78e366f44c2daea6
 
   ec2 = u.get_ec2_resource()
+  client = u.get_ec2_client()
   existing_vpcs = u.get_vpc_dict()
   zones = u.get_zones()
   vpc_name = u.get_vpc_name()
@@ -118,7 +119,14 @@ def network_setup():
       # todo(y): replace with u.create_name_tags
       subnet.create_tags(Tags=[{'Key': 'Name', 'Value': f'{vpc_name}-subnet'},
                                {'Key': 'Region', 'Value': zone}])
+      response = client.modify_subnet_attribute(
+        MapPublicIpOnLaunch={'Value': True},
+        SubnetId=subnet.id
+      )
+      assert u.is_good_response(response)
       u.wait_until_available(subnet)
+      assert subnet.map_public_ip_on_launch, "Subnet doesn't enable public IP by default, why?"
+
       route_table.associate_with_subnet(SubnetId=subnet.id)
 
   # Creates security group if necessary
