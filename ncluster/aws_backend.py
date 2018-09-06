@@ -12,7 +12,6 @@ from typing import Union
 import paramiko
 import pprint
 
-from ncluster.backend import Run
 from . import backend
 from . import aws_util as u
 from . import util
@@ -145,6 +144,15 @@ tmux a
     self.run(
       f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
       ignore_errors=True)
+
+    # sometimes mount command takes effect slightly after returning, make sure it's really mounted before returning
+    stdout, stderr = self.run_with_output('df')
+    while '/ncluster' not in stdout:
+      sleep_sec = 2
+      util.log(f"EFS not yet mounted, sleeping {sleep_sec} seconds")
+      time.sleep(sleep_sec)
+      stdout, stderr = self.run_with_output('df')
+
     self.run('sudo chmod 777 /ncluster')
 
     # Hack below may no longer be needed
@@ -351,7 +359,6 @@ def maybe_create_resources(task: Task = None):
   # this locking is approximate, still possible for threads to slip through
   if os.path.exists(AWS_LOCK_FN):
     pid, ts, lock_taskname = open(AWS_LOCK_FN).read().split('-')
-    pid = int(pid)
     ts = int(ts)
     log(f"waiting for aws resource creation, another resource initiation was "
         f"initiated {int(time.time()-ts)} seconds ago by "
@@ -359,7 +366,8 @@ def maybe_create_resources(task: Task = None):
         f"{AWS_LOCK_FN} if this is an error")
     while True:
       if os.path.exists(AWS_LOCK_FN):
-        print("Waiting for lock file to get deleted", AWS_LOCK_FN)
+        log(f"waiting for lock file {AWS_LOCK_FN} to get deleted "
+            f"initiated {int(time.time()-ts)} seconds ago by ")
         time.sleep(2)
         continue
       else:
@@ -371,15 +379,22 @@ def maybe_create_resources(task: Task = None):
 
   if not should_create_resources():
     util.log("Resources already created, no-op")
+    os.remove(AWS_LOCK_FN)
     return
 
   create_lib.create_resources()
   os.remove(AWS_LOCK_FN)
 
 
-def set_aws_environment():
+def set_aws_environment(task: Task = None):
   current_zone = os.environ.get('NCLUSTER_ZONE', '')
   current_region = os.environ.get('AWS_DEFAULT_REGION', '')
+
+  def log(*args):
+    if task:
+      task.log(*args)
+    else:
+      util.log(*args)
 
   if current_region and current_zone:
     assert current_zone.startswith(
@@ -396,7 +411,7 @@ def set_aws_environment():
   if not current_region:
     current_region = u.get_session().region_name
     if not current_region:
-      util.log(f"No default region available, using {NCLUSTER_DEFAULT_REGION}")
+      log(f"No default region available, using {NCLUSTER_DEFAULT_REGION}")
       current_region = NCLUSTER_DEFAULT_REGION
     os.environ['AWS_DEFAULT_REGION'] = current_region
 
@@ -405,8 +420,8 @@ def set_aws_environment():
   #    current_zone = current_region + 'a'
   #    os.environ['NCLUSTER_ZONE'] = current_zone
 
-  util.log(f"Using account {u.get_account_number()}, region {current_region}, "
-           f"zone {current_zone}")
+  log(f"Using account {u.get_account_number()}, region {current_region}, "
+      f"zone {current_zone}")
 
 
 def maybe_create_name(name, instance_type='', image_name='', tasks=1):
@@ -421,7 +436,8 @@ def maybe_create_name(name, instance_type='', image_name='', tasks=1):
   if name:
     return name
   main_script = os.path.abspath(sys.argv[0])
-  script_id = util.alphanumeric_hash(main_script + instance_type + image_name+str(tasks))
+  script_id = util.alphanumeric_hash(
+    main_script + instance_type + image_name + str(tasks))
   return f"unnamed-{script_id}"
 
 
@@ -441,7 +457,7 @@ def make_task(
         preemptible: Union[None, bool] = None,
         job: Job = None,
         task: backend.Task = None,
-        create_resources = True,
+        create_resources=True,
 ) -> Task:
   """
   Create task on AWS.
@@ -499,7 +515,6 @@ def make_task(
     placement_group = run_.aws_placement_group_name
     #    log(f"Launching into placement group {placement_group}")
     u.maybe_create_placement_group(placement_group)
-
 
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
@@ -605,10 +620,11 @@ def make_job(
         instance_type: str = '',
         image_name: str = '',
         run_: backend.Run = None,
-        create_resources = True,
+        create_resources=True,
         **kwargs) -> Job:
   """
   Args:
+    create_resources: if True, will create resources if necessary
     run_: Run object to group
     name: see backend.make_task
     run_name: see backend.make_task
@@ -621,15 +637,14 @@ def make_job(
 
   """
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
-
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
-  set_aws_environment()
-  if create_resources:
-    maybe_create_resources()
-
   tasks = [backend.Task(f"{i}.{name}") for i in range(num_tasks)]
+
+  set_aws_environment(tasks[0])
+  if create_resources:
+    maybe_create_resources(tasks[0])
 
   if run_ and run_name:
     assert run_.name == run_name, f"Got run_.name {run_.name} but run_name {run_name}"
@@ -653,7 +668,8 @@ def make_job(
                            instance_type=instance_type, image_name=image_name,
                            job=job,
                            task=tasks[i],
-                           create_resources=False,  # handle resources in job already
+                           create_resources=False,
+                           # handle resources in job already
                            **kwargs)
     except Exception as e:
       exceptions.append(e)

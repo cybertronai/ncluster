@@ -575,7 +575,8 @@ def get_instance_property(instance, property_name):
   return value
 
 
-def call_with_retries(method, debug_string='', retry_interval_sec=RETRY_INTERVAL_SEC **kwargs):
+def call_with_retries(method, debug_string='', retry_interval_sec=RETRY_INTERVAL_SEC,
+                      **kwargs):
   while True:
     try:
       value = method(**kwargs)
