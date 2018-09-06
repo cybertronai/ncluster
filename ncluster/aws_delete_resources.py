@@ -14,7 +14,6 @@ parser.add_argument('--kind', type=str, default='all',
                     help="which resources to delete, all/network/keypair/efs")
 parser.add_argument('--force-delete-efs', action='store_true',
                     help="force deleting main EFS")
-
 args = parser.parse_args()
 
 EFS_NAME = u.get_prefix()
@@ -42,14 +41,10 @@ def delete_efs():
       response = efs_client.describe_mount_targets(FileSystemId=efs_id)
       assert u.is_good_response(response)
       for mount_response in response['MountTargets']:
-        subnet = ec2.Subnet(mount_response['SubnetId'])
-        _zone = subnet.availability_zone
-        _state = mount_response['LifeCycleState']
-        _id = mount_response['MountTargetId']
-        _ip = mount_response['IpAddress']
-        sys.stdout.write('Deleting mount target %s ... ' % (id,))
+        id_ = mount_response['MountTargetId']
+        sys.stdout.write('Deleting mount target %s ... ' % (id_,))
         sys.stdout.flush()
-        response = efs_client.delete_mount_target(MountTargetId=id)
+        response = efs_client.delete_mount_target(MountTargetId=id_)
         print(response_type(response))
 
       sys.stdout.write('Deleting EFS %s (%s)... ' % (efs_id, EFS_NAME))
@@ -140,7 +135,7 @@ def delete_keypair():
     os.system('rm -f ' + keypair_fn)
 
 
-def delete_resources():
+def delete_resources(force_delete_efs=False):
   region = os.environ['AWS_DEFAULT_REGION']
 
   resource = u.get_prefix()
@@ -148,7 +143,7 @@ def delete_resources():
   print(f"Make sure {resource} instances are terminated or this will fail.")
 
   if 'efs' in args.kind or 'all' in args.kind:
-    if EFS_NAME == u.DEFAULT_PREFIX and not args.force_delete_efs:
+    if EFS_NAME == u.DEFAULT_PREFIX and not force_delete_efs:
       # this is default EFS, likely has stuff, require extra flag to delete it
       print("default EFS has useful stuff in it, not deleting it. Use force-delete-efs "
             "flag to force")
@@ -161,4 +156,4 @@ def delete_resources():
 
 
 if __name__ == '__main__':
-  delete_resources()
+  delete_resources(force_delete_efs=args.force_delete_efs)
