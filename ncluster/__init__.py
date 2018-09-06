@@ -8,6 +8,8 @@ from . import backend  # TODO: remove?
 
 from .ncluster import get_backend
 from .ncluster import set_backend
+from .ncluster import use_aws
+from .ncluster import use_local
 
 from .ncluster import make_task
 from .ncluster import make_job
@@ -15,6 +17,9 @@ from .ncluster import make_run
 from .ncluster import get_zone
 from .ncluster import set_logdir_root
 from .ncluster import get_logdir_root
+
+#from . import aws_delete_resources
+#from . import aws_create_resources
 
 
 # set default backend from environment
