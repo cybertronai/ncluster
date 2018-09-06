@@ -1,6 +1,8 @@
 """Interface for job launching backend."""
 # Job launcher Python API: https://docs.google.com/document/d/1yTkb4IPJXOUaEWksQPCH7q0sjqHgBf3f70cWzfoFboc/edit
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
+import os
+import sys
 import threading
 import time
 from typing import List, Tuple, Any
@@ -304,7 +306,12 @@ class Run:
 
     util.log(f"Creating run '{name}'")
     if not name:
-      name = f'unnamed.{name}.{util.now_micros()}'
+      # use directory/filename for run name
+      main_script = os.path.abspath(sys.argv[0])
+      if main_script.find('/') == 1:
+        main_script = 'asdf/'+main_script
+      filename = '.'.join(main_script.rsplit('/', 2)[-2:])
+      name = f'unnamedrun-{filename}'
 
     if jobs is None:
       jobs = []

@@ -12,6 +12,7 @@ from typing import Union
 import paramiko
 import pprint
 
+from ncluster.backend import Run
 from . import backend
 from . import aws_util as u
 from . import util
@@ -399,10 +400,13 @@ def set_aws_environment():
            f"zone {current_zone}")
 
 
-def maybe_create_name(name, tasks=1, instance_type='', image_name=''):
+def maybe_create_name(name, instance_type='', image_name='', tasks=1):
   """Function to create unique but persistent name for amazon resource
 
   Args:
+    name:
+    instance_type:
+    image_name:
     tasks:
   """
   if name:
@@ -416,7 +420,7 @@ def maybe_create_run_name(run_name, name):
   if run_name:
     return run_name
   else:
-    return 'default-' + name
+    return 'unnamedrun-' + name
 
 
 def make_task(
@@ -458,8 +462,16 @@ def make_task(
     else:
       util.log(*_args)
 
+  # if name not specified, use name which is the same across script invocations for given image/instance-type
+  name = maybe_create_name(name, instance_type, image_name)
+  run_name = maybe_create_run_name(run_name, name)
   if run_name and job:
     assert run_name == job.run_.name, "Provided Run object and run_name, but run_.name is {run_.name} while run_name is {run_name}"
+
+  if job is None:
+    run_: backend.Run = backend.Run(run_name)
+  else:
+    run_ = job.run_
 
   if not instance_type:
     instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
@@ -469,13 +481,10 @@ def make_task(
   maybe_create_resources(task=task)
   placement_group = ''
   if u.instance_supports_placement_groups(instance_type):
-    placement_group = job.run_.aws_placement_group_name
+    placement_group = run_.aws_placement_group_name
     #    log(f"Launching into placement group {placement_group}")
     u.maybe_create_placement_group(placement_group)
 
-  # if name not specified, use name which is the same across script invocations for given image/instance-type
-  name = maybe_create_name(name, num_tasks, instance_type, image_name)
-  run_name = maybe_create_run_name(run_name, name)
 
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
@@ -566,10 +575,7 @@ def make_task(
   # have internal task/job/run hierarchy, in case of single task
   # manually initialize it
   if job is None:
-    run_ = backend.Run(run_name)
     job = Job(name=name, run_=run_, tasks=[task])
-  else:
-    run_ = job.run_
 
   run_.jobs.append(job)
 
