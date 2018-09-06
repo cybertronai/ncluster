@@ -71,13 +71,14 @@ def get_vpc_dict():
 
 
 def get_default_vpc():
+  """
+  Return default VPC or none if not present
+
+  """
   ec2 = get_ec2_resource()
   for vpc in ec2.vpcs.all():
     if vpc.is_default:
       return vpc
-
-  raise RuntimeError(f"There was no default VPC in region {get_region()}, "
-                     f"create one using 'aws ec2 create-default-vpc'")
 
 
 def get_subnet_dict():
