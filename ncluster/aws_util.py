@@ -70,6 +70,16 @@ def get_vpc_dict():
   return result
 
 
+def get_default_vpc():
+  ec2 = get_ec2_resource()
+  for vpc in ec2.vpcs.all():
+    if vpc.is_default:
+      return vpc
+
+  raise RuntimeError(f"There was no default VPC in region {get_region()}, "
+                     f"create one using 'aws ec2 create-default-vpc'")
+
+
 def get_subnet_dict():
   """Returns dictionary of "availability zone" -> subnet for current VPC."""
   subnet_dict = {}
@@ -264,6 +274,9 @@ def get_vpc_name():
 
 
 def get_security_group_name():
+  # We have two security groups, ncluster for manually created VPC and
+  # ncluster-default for default VPC. Once default VPC works for all cases, can
+  # get rid of one of security groups
   return get_prefix()
 
 

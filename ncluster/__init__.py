@@ -18,9 +18,6 @@ from .ncluster import get_zone
 from .ncluster import set_logdir_root
 from .ncluster import get_logdir_root
 
-#from . import aws_delete_resources
-#from . import aws_create_resources
-
 
 # set default backend from environment
 if 'NCLUSTER_BACKEND' in os.environ:

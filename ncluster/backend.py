@@ -65,11 +65,19 @@ class Task:
     return self.job.run_.name
 
   def is_chief(self):
-    return self.job.tasks.index(self) == 0 and self.job.is_chief()
+    """Tests whether this task is 'chief', in other words, in charge of creating shared tasks for this
+    run, such as creating logging directory."""
+
+    if not self.job:  # standalone task, always chief
+      return True
+    else:  # only first task in first job is chielf
+      return self.job.tasks.index(self) == 0 and self.job.is_chief()
 
   def setup_logdir(self):
     """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
     """
+    assert self.job.run_.name
+
     if not self.is_chief():
       return
     if self.job.run_.logdir_:
@@ -91,7 +99,7 @@ class Task:
     counter = 0
     while logdir in stdout:
       counter += 1
-      lll = f'{logdir_root}/{self.run_name}.{counter:02d}'
+      lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
       self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
       logdir = lll
     self.run(f'mkdir -p {logdir}')
@@ -216,11 +224,12 @@ class Job:
 
   #  run_: Run
 
-  def __init__(self, name: str, run_object, tasks: List[Task] = None, **kwargs):
+  def __init__(self, name: str, run_, tasks: List[Task] = None, **kwargs):
+    """Initializes Job object, links tasks to refer back to the Job."""
     if tasks is None:
       tasks = []
     self.name = name
-    self.run_ = run_object
+    self.run_ = run_
     self.tasks = tasks
     self.kwargs = kwargs
     # TODO: maybe backlinking is not needed
@@ -233,6 +242,8 @@ class Job:
 
   def is_chief(self):
     """Return true if this task is first task in the Run"""
+    if not self.run_:  # standalone Job
+      return True
     return self.run_.jobs.index(self) == 0
 
   def _async_wrapper(self, method, *args, **kwargs):
@@ -291,6 +302,7 @@ class Run:
     """Creates a run. If install_script is specified, it's used as default
     install_script for all jobs (can be overridden by Job constructor)"""
 
+    util.log(f"Creating run '{name}'")
     if not name:
       name = f'unnamed.{name}.{util.now_micros()}'
 
@@ -301,6 +313,7 @@ class Run:
     self.kwargs = kwargs
 
     self.logdir_ = None
+    util.log(f"Choosing placement_group for run {name}")
     self.aws_placement_group_name = name + '-' + util.random_id()
 
     # TODO: this back-linking logic may be unneeded

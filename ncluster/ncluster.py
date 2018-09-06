@@ -32,6 +32,14 @@ def set_backend(backend_name: str):
   ncluster_globals.LOGDIR_ROOT = _backend.LOGDIR_ROOT
 
 
+def use_aws():
+  set_backend('aws')
+
+
+def use_local():
+  set_backend('local')
+
+
 def get_backend() -> str:
   """Returns backend name, ie "local" or "aws" """
   return _backend_name
