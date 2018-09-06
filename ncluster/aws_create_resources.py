@@ -136,6 +136,12 @@ def network_setup():
 
   # Use default VPC from now on
   vpc = u.get_default_vpc()
+  if not vpc:
+    util.log(f"Creating default VPC for region {u.get_region()}")
+    client.create_default_vpc()
+  vpc = u.get_default_vpc()
+  assert vpc, "Could not create default VPC?"
+
 
   existing_security_groups = u.get_security_group_dict()
   security_group_name = u.get_security_group_name()
