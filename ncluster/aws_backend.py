@@ -348,22 +348,31 @@ def maybe_create_resources(task: Task = None):
       return True
     return False
 
+  # this locking is approximate, still possible for threads to slip through
+  if os.path.exists(AWS_LOCK_FN):
+    pid, ts, lock_taskname = open(AWS_LOCK_FN).read().split('-')
+    pid = int(pid)
+    ts = int(ts)
+    log(f"waiting for aws resource creation, another resource initiation was "
+        f"initiated {int(time.time()-ts)} seconds ago by "
+        f"{lock_taskname}, delete lock file "
+        f"{AWS_LOCK_FN} if this is an error")
+    while True:
+      if os.path.exists(AWS_LOCK_FN):
+        print("Waiting for lock file to get deleted", AWS_LOCK_FN)
+        time.sleep(2)
+        continue
+      else:
+        break
+    return
+
+  with open(AWS_LOCK_FN, 'w') as f:
+    f.write(f'{os.getpid()}-{int(time.time())}-{task.name if task else ""}')
+
   if not should_create_resources():
     util.log("Resources already created, no-op")
     return
 
-  if os.path.exists(AWS_LOCK_FN):
-    pid, ts = open(AWS_LOCK_FN).read().split('-')
-    pid = int(pid)
-    ts = int(ts)
-    log(f"Skipping aws resource creation, another resource initiation was "
-        f"initiated {int(time.time()-ts)} seconds ago by "
-        f"{'this process' if pid==os.getpid() else pid}, delete lock file "
-        f"{AWS_LOCK_FN} if this is an error")
-    return
-
-  with open(AWS_LOCK_FN, 'w') as f:
-    f.write(f'{os.getpid()}-{int(time.time())}')
   create_lib.create_resources()
   os.remove(AWS_LOCK_FN)
 
@@ -432,6 +441,7 @@ def make_task(
         preemptible: Union[None, bool] = None,
         job: Job = None,
         task: backend.Task = None,
+        create_resources = True,
 ) -> Task:
   """
   Create task on AWS.
@@ -441,6 +451,7 @@ def make_task(
 
 
   Args:
+    create_resources: whether this task will handle resource creation
     job: parent job
     name: see ncluster.make_task
     run_name: see ncluster.make_task
@@ -478,7 +489,11 @@ def make_task(
     log("Using instance " + instance_type)
 
   set_aws_environment()
-  maybe_create_resources(task=task)
+  if create_resources:
+    maybe_create_resources(task=task)
+  else:
+    pass
+
   placement_group = ''
   if u.instance_supports_placement_groups(instance_type):
     placement_group = run_.aws_placement_group_name
@@ -590,6 +605,7 @@ def make_job(
         instance_type: str = '',
         image_name: str = '',
         run_: backend.Run = None,
+        create_resources = True,
         **kwargs) -> Job:
   """
   Args:
@@ -609,8 +625,9 @@ def make_job(
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
-  #  set_aws_environment()
-  #  maybe_create_resources()
+  set_aws_environment()
+  if create_resources:
+    maybe_create_resources()
 
   tasks = [backend.Task(f"{i}.{name}") for i in range(num_tasks)]
 
@@ -636,6 +653,7 @@ def make_job(
                            instance_type=instance_type, image_name=image_name,
                            job=job,
                            task=tasks[i],
+                           create_resources=False,  # handle resources in job already
                            **kwargs)
     except Exception as e:
       exceptions.append(e)
