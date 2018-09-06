@@ -111,7 +111,7 @@ def get_efs_dict():
     fs_id = efs_response['FileSystemId']
 
     tag_response = call_with_retries(efs_client.describe_tags, "efs_client.describe_tags",
-                                     FileSystemId=fs_id)
+                                     FileSystemId=fs_id, retry_interval_sec=2)
     assert is_good_response(tag_response)
     key = get_name(tag_response['Tags'])
     if not key or key == EMPTY_NAME:  # skip EFS's without a name
@@ -575,7 +575,7 @@ def get_instance_property(instance, property_name):
   return value
 
 
-def call_with_retries(method, debug_string='', **kwargs):
+def call_with_retries(method, debug_string='', retry_interval_sec=RETRY_INTERVAL_SEC **kwargs):
   while True:
     try:
       value = method(**kwargs)
@@ -583,7 +583,7 @@ def call_with_retries(method, debug_string='', **kwargs):
       break
     except Exception as e:
       print(f"retrieving {debug_string} failed with {e}, retrying")
-      time.sleep(RETRY_INTERVAL_SEC)
+      time.sleep(retry_interval_sec)
       continue
 
   return value
