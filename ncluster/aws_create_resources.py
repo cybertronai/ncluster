@@ -33,6 +33,9 @@ PUBLIC_UDP_RANGES = [(60000, 61000)]  # mosh ports
 # assert 'AWS_DEFAULT_REGION' in os.environ
 # assert os.environ['AWS_DEFAULT_REGION'] in {'us-east-2','us-east-1','us-west-1','us-west-2','ap-south-1','ap-northeast-2','ap-southeast-1','ap-southeast-2','ap-northeast-1','ca-central-1','eu-west-1','eu-west-2','sa-east-1'}
 
+# TODO: this creates a custom VPC, but we are using default VPC, so have two security groups
+# once we are sure we don't need custom VPC, delete VPC creation, automate default VPC
+# creation as in https://stackoverflow.com/questions/52189677/creating-default-vpc-using-boto3
 
 def network_setup():
   """Creates VPC if it doesn't already exists, configures it for public
@@ -44,6 +47,8 @@ def network_setup():
   client = u.get_ec2_client()
   existing_vpcs = u.get_vpc_dict()
   zones = u.get_zones()
+
+  # create VPC from scratch. Remove this if default VPC works well enough.
   vpc_name = u.get_vpc_name()
   if u.get_vpc_name() in existing_vpcs:
     print("Reusing VPC " + vpc_name)
@@ -71,7 +76,7 @@ def network_setup():
   if gateway_name in gateways:
     print("Reusing gateways " + gateway_name)
   else:
-    print("Creating gateway " + gateway_name)
+    print("Creating internet gateway " + gateway_name)
     ig = ec2.create_internet_gateway()
     ig.attach_to_vpc(VpcId=vpc.id)
     ig.create_tags(Tags=u.create_name_tags(gateway_name))
@@ -129,12 +134,16 @@ def network_setup():
 
       route_table.associate_with_subnet(SubnetId=subnet.id)
 
-  # Creates security group if necessary
+  # Use default VPC from now on
+  vpc = u.get_default_vpc()
+
   existing_security_groups = u.get_security_group_dict()
   security_group_name = u.get_security_group_name()
   if security_group_name in existing_security_groups:
     print("Reusing security group " + security_group_name)
     security_group = existing_security_groups[security_group_name]
+    assert security_group.vpc_id == vpc.id, f"Found security group {security_group} " \
+                                            f"attached to {security_group.vpc_id} but expected {vpc.id}"
   else:
     print("Creating security group " + security_group_name)
     security_group = ec2.create_security_group(
