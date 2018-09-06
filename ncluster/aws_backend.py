@@ -10,13 +10,12 @@ import threading
 import time
 from typing import Union
 import paramiko
+import pprint
 
 from . import backend
 from . import aws_util as u
 from . import util
 from . import aws_create_resources as create_lib
-
-from . import ncluster_globals
 
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
@@ -29,9 +28,19 @@ class Task(backend.Task):
   creation of SSH session, shutdown"""
 
   def __init__(self, name, instance, *, install_script='', image_name='',
-               job=None,
-               **extra_kwargs):
+               job=None, **extra_kwargs):
+    """
+   Initializes Task on top of existing AWS instance. Blocks until instance is ready to execute
+   shell commands.
 
+    Args:
+      name: task name
+      instance: ec2.Instance object (https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#instance)
+      install_script:
+      image_name: AWS image name
+      job: name of parent job
+      **extra_kwargs: unused kwargs (kept for compatibility with other backends)
+    """
     self._can_run = False  # indicates that things needed for .run were created
     self.initialize_called = False
 
@@ -151,19 +160,20 @@ tmux a
       time.sleep(u.RETRY_INTERVAL_SEC)
 
   # TODO: also chmod the file so that 755 files remain 755
-  def upload(self, local_fn, remote_fn='', dont_overwrite=False):
+  def upload(self, local_fn: str, remote_fn: str = '',
+             dont_overwrite: bool = False) -> None:
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    self.log('uploading ' + local_fn + ' to ' + remote_fn)
     sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
 
     # augmented SFTP client that can transfer directories, from
     # https://stackoverflow.com/a/19974994/419116
     def _put_dir(source, target):
       """ Uploads the contents of the source directory to the target path."""
+
       def _safe_mkdir(path, mode=511, ignore_existing=True):
-        """ Augments mkdir by adding an option to not fail if the folder exists  """
+        """ Augments mkdir by adding an option to not fail if the folder exists  asdf asdf asdf as"""
         try:
           sftp.mkdir(path, mode)
         except IOError:
@@ -180,14 +190,17 @@ tmux a
           sftp.put(os.path.join(source, item), os.path.join(target, item))
         else:
           _safe_mkdir(f'{target}/{item}')
-          _put_dir(sftp, f'{source}/{item}', f'{target}/{item}')
+          _put_dir(f'{source}/{item}', f'{target}/{item}')
 
     if not remote_fn:
       remote_fn = os.path.basename(local_fn)
+
+    self.log('uploading ' + local_fn + ' to ' + remote_fn)
     if dont_overwrite and self.file_exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
+    assert os.path.exists(local_fn), f"{local_fn} not found"
     if os.path.isdir(local_fn):
       _put_dir(local_fn, remote_fn)
     else:
@@ -243,7 +256,8 @@ tmux a
     if async:
       return 0
 
-    self.wait_for_file(status_fn, max_wait_sec=60)
+    if not self.wait_for_file(status_fn, max_wait_sec=60):
+      self.log(f"Retrying waiting for {status_fn}")
     while not self.file_exists(status_fn):
       self.log(f"Still waiting for {cmd}")
       self.wait_for_file(status_fn, max_wait_sec=60)
@@ -299,8 +313,10 @@ def maybe_start_instance(instance):
   if instance.state['Name'] == 'stopped':
     instance.start()
     while True:
-      print(
-        "Waiting  forever for instances to start. TODO: replace with proper wait loop")
+      print(f"Waiting  for {instance} to start.")
+      instance.reload()
+      if instance.state['Name'] == 'running':
+        break
       time.sleep(10)
 
 
@@ -352,12 +368,12 @@ def maybe_create_resources(task: Task = None):
 
 
 def set_aws_environment():
-  """Sets current zone/region environment variables.  """
   current_zone = os.environ.get('NCLUSTER_ZONE', '')
   current_region = os.environ.get('AWS_DEFAULT_REGION', '')
 
   if current_region and current_zone:
-    assert current_zone.startswith(current_region)
+    assert current_zone.startswith(
+      current_region), f'Current zone "{current_zone}" ($NCLUSTER_ZONE) is not in current region "{current_region} ($AWS_DEFAULT_REGION)'
     assert u.get_session().region_name == current_region  # setting from ~/.aws
 
   # zone is set, set region from zone
@@ -375,11 +391,32 @@ def set_aws_environment():
     os.environ['AWS_DEFAULT_REGION'] = current_region
 
   # zone not set, use first zone of the region
-  if not current_zone:
-    current_zone = current_region + 'a'
-    os.environ['NCLUSTER_ZONE'] = current_zone
+  #  if not current_zone:
+  #    current_zone = current_region + 'a'
+  #    os.environ['NCLUSTER_ZONE'] = current_zone
 
-  util.log(f"Using account {u.get_account_number()}, zone {current_zone}")
+  util.log(f"Using account {u.get_account_number()}, region {current_region}, "
+           f"zone {current_zone}")
+
+
+def maybe_create_name(name, tasks=1, instance_type='', image_name=''):
+  """Function to create unique but persistent name for amazon resource
+
+  Args:
+    tasks:
+  """
+  if name:
+    return name
+  main_script = os.path.abspath(sys.argv[0])
+  script_id = util.alphanumeric_hash(main_script + instance_type + image_name+str(tasks))
+  return f"unnamed-{script_id}"
+
+
+def maybe_create_run_name(run_name, name):
+  if run_name:
+    return run_name
+  else:
+    return 'default-' + name
 
 
 def make_task(
@@ -389,20 +426,24 @@ def make_task(
         instance_type: str = '',
         image_name: str = '',
         preemptible: Union[None, bool] = None,
-        run_object: backend.Run = None,
+        job: Job = None,
         task: backend.Task = None,
 ) -> Task:
   """
-  Create task on AWS
+  Create task on AWS.
+
+  Automatically places it in singleton Run/singleton Job objects, see Run/Job/Task hierarchy for details
+  https://docs.google.com/document/d/1Gg4T243cYrDUW1YDCikmqp7fzSQDU3rZxOkJr9ohhs8/edit#heading=h.j4td4oixogib
+
 
   Args:
+    job: parent job
     name: see ncluster.make_task
     run_name: see ncluster.make_task
     install_script: see ncluster.make_task
     instance_type: instance type to use, defaults to $NCLUSTER_INSTANCE or t3.micro if unset
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
     preemptible: use cheaper preemptible/spot instances
-    run_object: if specified, group this task with others in this run
     task: partially initialized Task object, use it for logging
 
   Returns:
@@ -411,11 +452,15 @@ def make_task(
 
   assert not preemptible, "Not implemented"
 
-  def log(*args):
+  def log(*_args):
     if task:
-      task.log(*args)
+      task.log(*_args)
     else:
-      util.log(*args)
+      util.log(*_args)
+
+  if run_name and job:
+    assert run_name == job.run_.name, "Provided Run object and run_name, but run_.name is {run_.name} while run_name is {run_name}"
+
   if not instance_type:
     instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
     log("Using instance " + instance_type)
@@ -423,19 +468,14 @@ def make_task(
   set_aws_environment()
   maybe_create_resources(task=task)
   placement_group = ''
-  if run_object and u.instance_supports_placement_groups(instance_type):
-    placement_group = run_object.aws_placement_group_name
+  if u.instance_supports_placement_groups(instance_type):
+    placement_group = job.run_.aws_placement_group_name
     #    log(f"Launching into placement group {placement_group}")
     u.maybe_create_placement_group(placement_group)
 
   # if name not specified, use name which is the same across script invocations for given image/instance-type
-  if not name:
-    main_script = os.path.abspath(sys.argv[0])
-    script_id = util.alphanumeric_hash(main_script + instance_type + image_name)
-    name = f"unnamed-{script_id}"
-
-  if not run_name:
-    run_name = f'default-{name}'
+  name = maybe_create_name(name, num_tasks, instance_type, image_name)
+  run_name = maybe_create_run_name(run_name, name)
 
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
@@ -451,7 +491,7 @@ def make_task(
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
-  subnet = u.get_subnet()
+  #  subnet = u.get_subnet()
   ec2 = u.get_ec2_resource()
 
   instance = u.lookup_instance(name, instance_type,
@@ -459,12 +499,15 @@ def make_task(
   maybe_start_instance(instance)
 
   # create the instance if not present
-  if not instance:
+  if instance:
+    log(f"Reusing {instance}")
+  else:
     log(f"Allocating {instance_type} for task {name}")
     args = {'ImageId': image.id,
             'InstanceType': instance_type,
             'MinCount': 1,
             'MaxCount': 1,
+            'SecurityGroupIds': [security_group.id],
             'KeyName': keypair.name}
 
     args['TagSpecifications'] = [{
@@ -474,11 +517,13 @@ def make_task(
         'Value': name
       }]
     }]
-    args['NetworkInterfaces'] = [{'SubnetId': subnet.id,
-                                  'DeviceIndex': 0,
-                                  'AssociatePublicIpAddress': True,
-                                  'Groups': [security_group.id]}]
-    placement_specs = {'AvailabilityZone': u.get_zone()}
+
+    #    args['NetworkInterfaces'] = [{'SubnetId': subnet.id,
+    #                                  'DeviceIndex': 0,
+    #                                  'AssociatePublicIpAddress': True,
+    #                                  'Groups': [security_group.id]}]
+    #    placement_specs = {'AvailabilityZone': u.get_zone()}
+    placement_specs = {}
     if placement_group:
       placement_specs['GroupName'] = placement_group
 
@@ -506,19 +551,28 @@ def make_task(
       log(
         "You can change availability zone using export NCLUSTER_ZONE=...")
       log("Terminating")
-      os.kill(os.getpid(), signal.SIGINT)  # sys.exit() doesn't inside thread
+      os.kill(os.getpid(),
+              signal.SIGINT)  # sys.exit() doesn't work inside thread
 
     assert instances, f"ec2.create_instances returned {instances}"
     log(f"Allocated {len(instances)} instances")
     instance = instances[0]
 
-  dummy_run = backend.Run(run_name)
-  dummy_job = dummy_run.make_job()
   task = Task(name, instance,  # propagate optional args
               install_script=install_script,
               image_name=image_name,
               instance_type=instance_type)
-  dummy_job.tasks.append(task)
+
+  # have internal task/job/run hierarchy, in case of single task
+  # manually initialize it
+  if job is None:
+    run_ = backend.Run(run_name)
+    job = Job(name=name, run_=run_, tasks=[task])
+  else:
+    run_ = job.run_
+
+  run_.jobs.append(job)
+
   return task
 
 
@@ -529,9 +583,11 @@ def make_job(
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
+        run_: backend.Run = None,
         **kwargs) -> Job:
   """
   Args:
+    run_: Run object to group
     name: see backend.make_task
     run_name: see backend.make_task
     num_tasks: number of tasks to launch
@@ -550,8 +606,20 @@ def make_job(
   #  set_aws_environment()
   #  maybe_create_resources()
 
-  run_object = backend.Run(run_name)
   tasks = [backend.Task(f"{i}.{name}") for i in range(num_tasks)]
+
+  if run_ and run_name:
+    assert run_.name == run_name, f"Got run_.name {run_.name} but run_name {run_name}"
+  elif run_:
+    run_name = run_.name
+
+  name = maybe_create_name(name, instance_type, image_name, num_tasks)
+  run_name = maybe_create_run_name(run_name, name)
+
+  if run_ is None:
+    run_ = backend.Run(run_name)
+  job = Job(name=name, tasks=tasks, run_=run_, **kwargs)
+
   exceptions = []
 
   # make tasks in parallel
@@ -560,7 +628,7 @@ def make_job(
       tasks[i] = make_task(f"{i}.{name}", run_name=run_name,
                            install_script=install_script,
                            instance_type=instance_type, image_name=image_name,
-                           run_object=run_object,
+                           job=job,
                            task=tasks[i],
                            **kwargs)
     except Exception as e:
@@ -578,8 +646,20 @@ def make_job(
   if exceptions:
     raise exceptions[0]
 
-  job = Job(name=name, run_object=run_object, tasks=tasks, **kwargs)
-  run_object.jobs.append(job)
+  job.tasks = tasks
+  for task in job.tasks:
+    task.job = job
+
+  # double check that all instances are in the same placement group
+  # this can happen if some instances from previous smaller run are getting reused
+  placement_dict = {task.instance.placement_group: task.name for task in
+                    job.tasks}
+  if len(placement_dict) > 1:
+    util.log("Job tasks are spread over multiple placement groups")
+    pprint.pprint(placement_dict)
+    raise RuntimeError(
+      f"Got instance spread over multiple placement groups: {placement_dict}. Must terminate all instances in run {run_name} and try again.")
+  run_.jobs.append(job)
   return job
 
 # def make_run(name, **kwargs):
