@@ -244,7 +244,6 @@ def get_keypair_name():
   """Returns current keypair name."""
 
   username = get_username()
-  # todo: remove restriction?
   assert '-' not in username, "username must not contain -, change $USER"
   validate_aws_name(username)
   assert len(username) < 30  # to avoid exceeding AWS 127 char limit
@@ -320,15 +319,13 @@ def lookup_image(wildcard):
   return images[0]
 
 
-# TODO: validate image_name
 def lookup_instance(name: str, instance_type: str = '', _image_name: str = '',
-                    states: tuple = ('running', 'stopped')):
-  """Looks up AWS instance for a given AWS instance name and current user, like
-   simple.worker. If no instance found, returns None. """
+                    states: tuple = ('running', 'stopped', 'initializing')):
+  """Looks up AWS instance for given instance name, like
+   simple.worker. If no instance found in current AWS environment, returns None. """
 
   ec2 = get_ec2_resource()
 
-  # TODO: add waiting so that instances in state "initializing" are supported
   instances = ec2.instances.filter(
     Filters=[{'Name': 'instance-state-name', 'Values': states}])
 
@@ -433,6 +430,7 @@ def validate_run_name(name):
 
 
 def create_name_tags(name):
+  """Returns [{'Key': 'Name', 'Value': name}] """
   return [{'Key': 'Name', 'Value': name}]
 
 
@@ -599,10 +597,15 @@ def get_ec2_client():
 
 
 def get_efs_client():
-  # TODO: below sometimes fails with
-  # botocore.exceptions.DataNotFoundError: Unable to load data for: endpoints
-  # need to add retry
-  return get_session().client('efs')
+  while True:
+    try:
+      return get_session().client('efs')
+    except Exception as e:
+      # can get following
+      # botocore.exceptions.DataNotFoundError: Unable to load data for: endpoints
+      util.log(f"get_session().client('efs') failed with {e}, retrying")
+      time.sleep(2)
+
 
 
 def is_good_response(response):
