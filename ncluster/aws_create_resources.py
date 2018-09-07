@@ -29,13 +29,8 @@ PUBLIC_TCP_RANGES = [
 PUBLIC_UDP_RANGES = [(60000, 61000)]  # mosh ports
 
 
-# region is taken from environment variable AWS_DEFAULT_REGION
-# assert 'AWS_DEFAULT_REGION' in os.environ
-# assert os.environ['AWS_DEFAULT_REGION'] in {'us-east-2','us-east-1','us-west-1','us-west-2','ap-south-1','ap-northeast-2','ap-southeast-1','ap-southeast-2','ap-northeast-1','ca-central-1','eu-west-1','eu-west-2','sa-east-1'}
-
 # TODO: this creates a custom VPC, but we are using default VPC, so have two security groups
-# once we are sure we don't need custom VPC, delete VPC creation, automate default VPC
-# creation as in https://stackoverflow.com/questions/52189677/creating-default-vpc-using-boto3
+# once we are sure we don't need custom VPC, can get rid of extra VPC creation
 
 def network_setup():
   """Creates VPC if it doesn't already exists, configures it for public
@@ -82,9 +77,6 @@ def network_setup():
     ig.create_tags(Tags=u.create_name_tags(gateway_name))
 
     # check that attachment succeeded
-    # TODO: sometimes get
-    # AssertionError: vpc vpc-33d0804b is in state None
-
     attach_state = u.extract_attr_for_match(ig.attachments, State=-1,
                                             VpcId=vpc.id)
     assert attach_state == 'available', "vpc %s is in state %s" % (vpc.id,
@@ -121,7 +113,6 @@ def network_setup():
       print("Creating subnet %s in zone %s" % (cidr_block, zone))
       subnet = vpc.create_subnet(CidrBlock=cidr_block,
                                  AvailabilityZone=zone)
-      # todo(y): replace with u.create_name_tags
       subnet.create_tags(Tags=[{'Key': 'Name', 'Value': f'{vpc_name}-subnet'},
                                {'Key': 'Region', 'Value': zone}])
       response = client.modify_subnet_attribute(
@@ -141,7 +132,6 @@ def network_setup():
     client.create_default_vpc()
   vpc = u.get_default_vpc()
   assert vpc, "Could not create default VPC?"
-
 
   existing_security_groups = u.get_security_group_dict()
   security_group_name = u.get_security_group_name()
@@ -250,7 +240,6 @@ def keypair_setup():
       keypair_name, keypair_fn, keypair_name)
     keypair_contents = open(keypair_fn).read()
     assert len(keypair_contents) > 0
-    # todo: check that fingerprint matches keypair.key_fingerprint
   else:
     print("Creating keypair " + keypair_name)
     ec2 = u.get_ec2_resource()
