@@ -1,7 +1,5 @@
 # AWS implementation of backend.py
 
-# todo: move EFS mounting into userdata for things to happen in parallel
-# TODO: fix remote_fn must be absolute for uploading with check_with_existing
 import os
 import shlex
 import signal
@@ -93,8 +91,6 @@ class Task(backend.Task):
       self.install_script += f'\necho ok > {self._initialized_fn}\n'
       self.file_write('install.sh', util.shell_add_echo(self.install_script))
       self.run('bash -e install.sh')  # fail on errors
-      # TODO(y): propagate error messages printed on console to the user
-      # right now had to log into tmux to see them
       assert self._is_initialized_fn_present()
 
     self.connect_instructions = f"""
@@ -105,7 +101,6 @@ tmux a
     self.log("Initialize complete")
     self.log(self.connect_instructions)
 
-  # todo: replace with file_read
   def _is_initialized_fn_present(self):
     self.log("Checking for initialization status")
     try:
@@ -145,12 +140,15 @@ tmux a
       f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
       ignore_errors=True)
 
-    # sometimes mount command takes effect slightly after returning, make sure it's really mounted before returning
+    # sometimes mount command doesn't work, make sure it's really mounted before returning
     stdout, stderr = self.run_with_output('df')
     while '/ncluster' not in stdout:
       sleep_sec = 2
       util.log(f"EFS not yet mounted, sleeping {sleep_sec} seconds")
       time.sleep(sleep_sec)
+      self.run(
+        f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
+        ignore_errors=True)
       stdout, stderr = self.run_with_output('df')
 
     self.run('sudo chmod 777 /ncluster')
@@ -238,7 +236,8 @@ tmux a
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
-  # TODO: build a pstree and warn if trying to run something while main tmux bash has a subprocess running
+  # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
+  # this would ensure that commands being sent are not being swallowed
   def run(self, cmd, async=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.5) -> int:
@@ -296,19 +295,29 @@ tmux a
     """
     #    self._log("run_ssh: %s"%(cmd,))
 
-    # TODO(y), transition to SSHClient and assert fail on bad error codes
+# TODO: proper reporting for following failure
+# self.ssh_client.exec_command(cmd, get_pty=True)
+#  File
+#  "/Users/yaroslav/anaconda/envs/ncluster-test3/lib/python3.6/site-packages/paramiko/transport.py", line
+#  767, in open_session
+#  timeout = timeout)
+#  File
+#  "/Users/yaroslav/anaconda/envs/ncluster-test3/lib/python3.6/site-packages/paramiko/transport.py", line
+#  902, in open_channel
+#  raise e
+#  paramiko.ssh_exception.ChannelException: (1, 'Administratively prohibited')
+
+# TODO(y), transition to SSHClient and assert fail on bad error codes
     # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
     stdin, stdout, stderr = self.ssh_client.exec_command(cmd, get_pty=True)
     stdout_str = stdout.read().decode()
     stderr_str = stderr.read().decode()
-    # TODO: use shell return status to see if it failed
     if 'command not found' in stdout_str or 'command not found' in stderr_str:
       self.log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
       assert False, "run_ssh command failed"
     return stdout_str, stderr_str
 
 
-# TODO: remove?
 class Job(backend.Job):
   pass
 
@@ -328,8 +337,21 @@ def maybe_start_instance(instance):
         break
       time.sleep(10)
 
+def maybe_wait_for_initializing_instance(instance):
+  """Starts instance if it's stopped, no-op otherwise."""
 
-# TODO: call tasks without names "unnamed-123123"
+  if not instance:
+    return
+
+  if instance.state['Name'] == 'initializing':
+    while True:
+      print(f"Waiting  for {instance} to leave state 'initializing'.")
+      instance.reload()
+      if instance.state['Name'] == 'running':
+        break
+      time.sleep(10)
+
+
 def maybe_create_resources(task: Task = None):
   """Use heuristics to decide to possibly create resources"""
 
@@ -387,6 +409,7 @@ def maybe_create_resources(task: Task = None):
 
 
 def set_aws_environment(task: Task = None):
+  """Sets up AWS environment from NCLUSTER environment variables"""
   current_zone = os.environ.get('NCLUSTER_ZONE', '')
   current_region = os.environ.get('AWS_DEFAULT_REGION', '')
 
@@ -398,7 +421,8 @@ def set_aws_environment(task: Task = None):
 
   if current_region and current_zone:
     assert current_zone.startswith(
-      current_region), f'Current zone "{current_zone}" ($NCLUSTER_ZONE) is not in current region "{current_region} ($AWS_DEFAULT_REGION)'
+      current_region), f'Current zone "{current_zone}" ($NCLUSTER_ZONE) is not ' \
+                       f'in current region "{current_region} ($AWS_DEFAULT_REGION)'
     assert u.get_session().region_name == current_region  # setting from ~/.aws
 
   # zone is set, set region from zone
@@ -534,8 +558,9 @@ def make_task(
   ec2 = u.get_ec2_resource()
 
   instance = u.lookup_instance(name, instance_type,
-                               image_name)  # todo: also add kwargs
+                               image_name)
   maybe_start_instance(instance)
+  maybe_wait_for_initializing_instance(instance)
 
   # create the instance if not present
   if instance:
