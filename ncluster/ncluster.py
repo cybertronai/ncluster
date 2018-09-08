@@ -49,6 +49,13 @@ def get_backend_module() -> backend:
   return _backend
 
 
+def get_region() -> str:
+  if _backend != local_backend:
+    return u.get_region()
+  else:
+    return 'local'
+
+
 def get_zone() -> str:
   if _backend != local_backend:
     return u.get_zone()

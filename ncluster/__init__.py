@@ -15,6 +15,7 @@ from .ncluster import make_task
 from .ncluster import make_job
 from .ncluster import make_run
 from .ncluster import get_zone
+from .ncluster import get_region
 from .ncluster import set_logdir_root
 from .ncluster import get_logdir_root
 
