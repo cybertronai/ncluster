@@ -105,6 +105,7 @@ def get_efs_dict():
 
   efs_client = get_efs_client()
   response = efs_client.describe_file_systems()
+  response = call_with_retries(efs_client.describe_file_systems, 'efs_client.describe_file_systems')
   assert is_good_response(response)
   result = OrderedDict()
   for efs_response in response['FileSystems']:
