@@ -295,21 +295,10 @@ tmux a
     """
     #    self._log("run_ssh: %s"%(cmd,))
 
-# TODO: proper reporting for following failure
-# self.ssh_client.exec_command(cmd, get_pty=True)
-#  File
-#  "/Users/yaroslav/anaconda/envs/ncluster-test3/lib/python3.6/site-packages/paramiko/transport.py", line
-#  767, in open_session
-#  timeout = timeout)
-#  File
-#  "/Users/yaroslav/anaconda/envs/ncluster-test3/lib/python3.6/site-packages/paramiko/transport.py", line
-#  902, in open_channel
-#  raise e
-#  paramiko.ssh_exception.ChannelException: (1, 'Administratively prohibited')
-
-# TODO(y), transition to SSHClient and assert fail on bad error codes
+    # TODO(y), transition to SSHClient and assert fail on bad error codes
     # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
-    stdin, stdout, stderr = self.ssh_client.exec_command(cmd, get_pty=True)
+    # sometimes fails with (1, 'Administratively prohibited'), possibly because of parallel connections
+    stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command, command=cmd, get_pty=True)
     stdout_str = stdout.read().decode()
     stderr_str = stderr.read().decode()
     if 'command not found' in stdout_str or 'command not found' in stderr_str:
@@ -407,7 +396,8 @@ def maybe_create_resources(task: Task = None):
 
     create_lib.create_resources()
   finally:
-    os.remove(AWS_LOCK_FN)
+    if os.path.exists(AWS_LOCK_FN):
+      os.remove(AWS_LOCK_FN)
 
 
 def set_aws_environment(task: Task = None):
