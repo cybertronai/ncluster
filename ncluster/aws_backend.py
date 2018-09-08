@@ -378,34 +378,36 @@ def maybe_create_resources(task: Task = None):
       return True
     return False
 
-  # this locking is approximate, still possible for threads to slip through
-  if os.path.exists(AWS_LOCK_FN):
-    pid, ts, lock_taskname = open(AWS_LOCK_FN).read().split('-')
-    ts = int(ts)
-    log(f"waiting for aws resource creation, another resource initiation was "
-        f"initiated {int(time.time()-ts)} seconds ago by "
-        f"{lock_taskname}, delete lock file "
-        f"{AWS_LOCK_FN} if this is an error")
-    while True:
-      if os.path.exists(AWS_LOCK_FN):
-        log(f"waiting for lock file {AWS_LOCK_FN} to get deleted "
-            f"initiated {int(time.time()-ts)} seconds ago by ")
-        time.sleep(2)
-        continue
-      else:
-        break
-    return
+  try:
+    # this locking is approximate, still possible for threads to slip through
+    if os.path.exists(AWS_LOCK_FN):
+      pid, ts, lock_taskname = open(AWS_LOCK_FN).read().split('-')
+      ts = int(ts)
+      log(f"waiting for aws resource creation, another resource initiation was "
+          f"initiated {int(time.time()-ts)} seconds ago by "
+          f"{lock_taskname}, delete lock file "
+          f"{AWS_LOCK_FN} if this is an error")
+      while True:
+        if os.path.exists(AWS_LOCK_FN):
+          log(f"waiting for lock file {AWS_LOCK_FN} to get deleted "
+              f"initiated {int(time.time()-ts)} seconds ago by ")
+          time.sleep(2)
+          continue
+        else:
+          break
+      return
 
-  with open(AWS_LOCK_FN, 'w') as f:
-    f.write(f'{os.getpid()}-{int(time.time())}-{task.name if task else ""}')
+    with open(AWS_LOCK_FN, 'w') as f:
+      f.write(f'{os.getpid()}-{int(time.time())}-{task.name if task else ""}')
 
-  if not should_create_resources():
-    util.log("Resources already created, no-op")
+    if not should_create_resources():
+      util.log("Resources already created, no-op")
+      os.remove(AWS_LOCK_FN)
+      return
+
+    create_lib.create_resources()
+  finally:
     os.remove(AWS_LOCK_FN)
-    return
-
-  create_lib.create_resources()
-  os.remove(AWS_LOCK_FN)
 
 
 def set_aws_environment(task: Task = None):
