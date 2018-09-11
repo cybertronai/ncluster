@@ -238,7 +238,7 @@ tmux a
 
   # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
   # this would ensure that commands being sent are not being swallowed
-  def run(self, cmd, async=False, ignore_errors=False,
+  def run(self, cmd, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.5) -> int:
 
@@ -261,7 +261,7 @@ tmux a
 
     tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
     self._run_raw(tmux_cmd)
-    if async:
+    if non_blocking:
       return 0
 
     if not self.wait_for_file(status_fn, max_wait_sec=60):

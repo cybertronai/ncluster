@@ -70,9 +70,9 @@ def run_launcher():
     job.run('source activate tensorflow_p36')
 
   ip_config = f'--sender-ip={sender.ip} --receiver-ip={receiver.ip}'
-  job.tasks[1].run(f'python {this_file} --role=receiver {ip_config}', async=True)
+  job.tasks[1].run(f'python {this_file} --role=receiver {ip_config}', non_blocking=True)
   job.tasks[0].run(f'python {this_file} --role=sender --logdir={job.logdir} {ip_config}')
-  job.tasks[0].run(f'tensorboard --logdir={job.logdir}/..', async=True)
+  job.tasks[0].run(f'tensorboard --logdir={job.logdir}/..', non_blocking=True)
   print(f"Benchmark done, tensorboard at http://{job.tasks[0].public_ip}:6006")
 
 
