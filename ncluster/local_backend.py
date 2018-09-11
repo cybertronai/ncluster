@@ -125,7 +125,7 @@ class Task(backend.Task):
     if not remote_fn.startswith('/'):
       remote_fn = self.taskdir + '/' + remote_fn
 
-    self.run('mkdir -p '+os.path.dirname(remote_fn))
+    self._run_raw('mkdir -p '+os.path.dirname(remote_fn))
 
     local_fn = os.path.abspath(local_fn)
     self._run_raw("cp -R %s %s" % (local_fn, remote_fn))
@@ -171,7 +171,6 @@ class Task(backend.Task):
 def make_task(name='',
               run_name='',
               **kwargs) -> Task:
-
 
   if not name:
     script_id = util.alphanumeric_hash(sys.argv[0])
