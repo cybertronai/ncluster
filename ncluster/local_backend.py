@@ -112,7 +112,7 @@ class Task(backend.Task):
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it
-    into default directory."""
+    into default directory. Creates missing directories in path name."""
 
     self.log('uploading ' + local_fn + ' to ' + remote_fn)
 
@@ -124,6 +124,8 @@ class Task(backend.Task):
 
     if not remote_fn.startswith('/'):
       remote_fn = self.taskdir + '/' + remote_fn
+
+    self.run('mkdir -p '+os.path.dirname(remote_fn))
 
     local_fn = os.path.abspath(local_fn)
     self._run_raw("cp -R %s %s" % (local_fn, remote_fn))
@@ -169,12 +171,14 @@ class Task(backend.Task):
 def make_task(name='',
               run_name='',
               **kwargs) -> Task:
+
+
   if not name:
     script_id = util.alphanumeric_hash(sys.argv[0])
-    name = f"unnamed-{script_id}"
+    name = f"unnamedlocaltask-{script_id}"
 
   if not run_name:
-    run_name = f'default-{name}'
+    run_name = f'unnamedrun-{name}'
 
   # tmux can't use . for session names
   tmux_window = name.replace('.', '=') + ':0'
