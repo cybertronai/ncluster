@@ -454,7 +454,7 @@ def maybe_create_name(name, instance_type='', image_name='', tasks=1):
   main_script = os.path.abspath(sys.argv[0])
   script_id = util.alphanumeric_hash(
     main_script + instance_type + image_name + str(tasks))
-  return f"unnamed-{script_id}"
+  return f"unnamedtask-{script_id}"
 
 
 def maybe_create_run_name(run_name, name):
