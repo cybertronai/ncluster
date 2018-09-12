@@ -7,7 +7,7 @@ import stat
 import sys
 import threading
 import time
-from typing import Union
+from typing import Union, Tuple
 import paramiko
 import pprint
 
@@ -25,6 +25,8 @@ LOGDIR_ROOT = '/ncluster/runs'
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
   creation of SSH session, shutdown"""
+
+  sftp: paramiko.SFTPClient
 
   def __init__(self, name, instance, *, install_script='', image_name='',
                job=None, **extra_kwargs):
@@ -51,6 +53,7 @@ class Task(backend.Task):
 
     self.public_ip = u.get_public_ip(instance)
     self.ip = u.get_ip(instance)
+    self.sftp = None
     self._linux_type = 'ubuntu'
 
     # heuristic to tell if I'm using Amazon image name
@@ -76,7 +79,7 @@ class Task(backend.Task):
     elif self._linux_type == 'amazon':
       #      self._current_directory = '/home/ec2-user'
       self.ssh_username = 'ec2-user'
-    self.homedir = '/home/'+self.ssh_username
+    self.homedir = '/home/' + self.ssh_username
 
     self.ssh_client = u.ssh_to_task(self)
     self._setup_tmux()
@@ -180,8 +183,13 @@ tmux a
         self.upload(local_subfn)
       return
 
-    sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
-                                                    'self.ssh_client.open_sftp')
+    if '#' in local_fn:  # hashes also give problems from shell commands
+      self.log("skipping backup file {local_fn}")
+      return
+
+    # TODO: reuse sftp client instead of opening new one
+    if not self.sftp:
+      self.sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
 
     def maybe_fix_mode(local_fn_, remote_fn_):
       """Makes remote file execute for locally executable files"""
@@ -198,7 +206,7 @@ tmux a
       def _safe_mkdir(path, mode=511, ignore_existing=True):
         """ Augments mkdir by adding an option to not fail if the folder exists  asdf asdf asdf as"""
         try:
-          sftp.mkdir(path, mode)
+          self.sftp.mkdir(path, mode)
         except IOError:
           if ignore_existing:
             pass
@@ -210,7 +218,7 @@ tmux a
 
       for item in os.listdir(source):
         if os.path.isfile(os.path.join(source, item)):
-          sftp.put(os.path.join(source, item), os.path.join(target, item))
+          self.sftp.put(os.path.join(source, item), os.path.join(target, item))
           maybe_fix_mode(os.path.join(source, item), os.path.join(target, item))
         else:
           _safe_mkdir(f'{target}/{item}')
@@ -224,7 +232,8 @@ tmux a
 
     if '/' in remote_fn:
       remote_dir = os.path.dirname(remote_fn)
-      assert self.file_exists(remote_dir), f"Remote dir {remote_dir} doesn't exist"
+      assert self.file_exists(
+        remote_dir), f"Remote dir {remote_dir} doesn't exist"
     if dont_overwrite and self.file_exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
@@ -234,18 +243,24 @@ tmux a
       _put_dir(local_fn, remote_fn)
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
-      sftp.put(local_fn, remote_fn)
+      # this crashes with IOError when upload failed
+      if self.isdir(remote_fn):
+        self.sftp.put(localpath=local_fn, remotepath=remote_fn+'/'+os.path.basename(local_fn))
+      # u.call_with_retries(sftp.put, debug_string=f"sftp.put({local_fn}, {remote_fn})",
+      #                    localpath=local_fn, remotepath=remote_fn)
       maybe_fix_mode(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
     self.log("downloading %s" % remote_fn)
     # sometimes open_sftp fails with Administratively prohibited, do retries
-    sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
-                                                    'self.ssh_client.open_sftp')
+    # root cause could be too many SSH connections being open
+    # https://unix.stackexchange.com/questions/14160/ssh-tunneling-error-channel-1-open-failed-administratively-prohibited-open
+    if not self.sftp:
+      self.sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self.log("downloading %s to %s" % (remote_fn, local_fn))
-    sftp.get(remote_fn, local_fn)
+    self.sftp.get(remote_fn, local_fn)
 
   def file_exists(self, remote_fn):
     stdout, stderr = self._run_raw('stat ' + remote_fn)
@@ -261,6 +276,10 @@ tmux a
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
+  def isdir(self, remote_fn):
+    stdout, _stderr = self._run_raw('ls -ld ' + remote_fn)
+    return stdout.startswith('d')
+
   # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
   # this would ensure that commands being sent are not being swallowed
   def run(self, cmd, non_blocking=False, ignore_errors=False,
@@ -269,7 +288,8 @@ tmux a
 
     if '\n' in cmd:
       cmds = cmd.split('\n')
-      self.log(f"Running {len(cmds)} commands at once, returning status of last")
+      self.log(
+        f"Running {len(cmds)} commands at once, returning status of last")
       status = -1
       for subcmd in cmds:
         status = self.run(subcmd)
@@ -318,7 +338,7 @@ tmux a
 
     return status
 
-  def _run_raw(self, cmd):
+  def _run_raw(self, cmd: str) -> Tuple[str, str]:
     """Runs given cmd in the task using current SSH session, returns
     stdout/stderr as strings. Because it blocks until cmd is done, use it for
     short cmds. Silently ignores failing commands.
@@ -331,7 +351,8 @@ tmux a
     # TODO(y), transition to SSHClient and assert fail on bad error codes
     # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
     # sometimes fails with (1, 'Administratively prohibited'), possibly because of parallel connections
-    stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command, command=cmd, get_pty=True)
+    stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command,
+                                                command=cmd, get_pty=True)
     stdout_str = stdout.read().decode()
     stderr_str = stderr.read().decode()
     if 'command not found' in stdout_str or 'command not found' in stderr_str:
