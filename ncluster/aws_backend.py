@@ -226,6 +226,8 @@ tmux a
 
     # sometimes open_sftp fails with Administratively prohibited, do retries
     sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
+    sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
+                                                    'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self.log("downloading %s to %s" % (remote_fn, local_fn))
