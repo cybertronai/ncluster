@@ -175,7 +175,8 @@ tmux a
   def upload(self, local_fn: str, remote_fn: str = '',
              dont_overwrite: bool = False) -> None:
     """Uploads file to remote instance. If location not specified, dumps it
-    into default directory."""
+    into default directory. If remote location has files or directories with the
+     same name, behavior is undefined."""
 
     # support wildcard through glob
     if '*' in local_fn:
@@ -244,10 +245,9 @@ tmux a
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
       # this crashes with IOError when upload failed
-      if self.isdir(remote_fn):
-        self.sftp.put(localpath=local_fn, remotepath=remote_fn+'/'+os.path.basename(local_fn))
-      # u.call_with_retries(sftp.put, debug_string=f"sftp.put({local_fn}, {remote_fn})",
-      #                    localpath=local_fn, remotepath=remote_fn)
+      if self.file_exists(remote_fn) and self.isdir(remote_fn):
+        remote_fn = remote_fn + '/' + os.path.basename(local_fn)
+      self.sftp.put(localpath=local_fn, remotepath=remote_fn)
       maybe_fix_mode(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
