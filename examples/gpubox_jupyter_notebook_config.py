@@ -6365,7 +6365,7 @@
 
 
 
-
+c = c  # noqa: The global c is created by Jupyter
 c.NotebookApp.ip = '*'
 
 

@@ -107,17 +107,17 @@ class Task:
     self.run(f'mkdir -p {logdir}')
     self.job.run_.logdir_ = logdir
 
-  def run(self, cmd: str, async=False, ignore_errors=False):
+  def run(self, cmd: str, non_blocking=False, ignore_errors=False):
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run_with_output(self, cmd, async=False, ignore_errors=False) -> Tuple[
+  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> Tuple[
     str, str]:
     """
 
     Args:
       cmd: single line shell command to run
-      async (bool): if True, does not wait for command to finish
+      non_blocking (bool): if True, does not wait for command to finish
       ignore_errors: if True, will succeed even if command failed
 
     Returns:
@@ -136,7 +136,7 @@ class Task:
     stderr_fn = f"{self.remote_scratch}/{self.run_counter+1}.stderr"
     cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
 
-    assert not async, "Getting output doesn't work with async"
+    assert not non_blocking, "Getting output doesn't work with non_blocking"
     status = self.run(cmd2, False, ignore_errors=True)
     stdout = self.file_read(stdout_fn)
     stderr = self.file_read(stderr_fn)
@@ -248,7 +248,7 @@ class Job:
       return True
     return self.run_.jobs.index(self) == 0
 
-  def _async_wrapper(self, method, *args, **kwargs):
+  def _non_blocking_wrapper(self, method, *args, **kwargs):
     """Runs given method on every task in the job. Blocks until all tasks finish. Propagates exception from first
     failed task."""
 
@@ -273,22 +273,22 @@ class Job:
   def run(self, *args, **kwargs):
     """Runs command on every task in the job in parallel, blocks until all tasks finish.
     See Task for documentation of args/kwargs."""
-    return self._async_wrapper("run", *args, **kwargs)
+    return self._non_blocking_wrapper("run", *args, **kwargs)
 
   def run_with_output(self, *args, **kwargs):
     """Runs command on every task in the job in parallel, blocks until all tasks finish.
     See Task for documentation of args/kwargs."""
-    return self._async_wrapper("run_with_output", *args, **kwargs)
+    return self._non_blocking_wrapper("run_with_output", *args, **kwargs)
 
   def upload(self, *args, **kwargs):
     """See :py:func:`backend.Task.upload`"""
-    return self._async_wrapper("upload", *args, **kwargs)
+    return self._non_blocking_wrapper("upload", *args, **kwargs)
 
   def file_write(self, *args, **kwargs):
-    return self._async_wrapper("file_write", *args, **kwargs)
+    return self._non_blocking_wrapper("file_write", *args, **kwargs)
 
   def _run_raw(self, *args, **kwargs):
-    return self._async_wrapper("_run_raw", *args, **kwargs)
+    return self._non_blocking_wrapper("_run_raw", *args, **kwargs)
 
 
 class Run:
@@ -335,7 +335,7 @@ class Run:
   def make_job(self, name='', **kwargs):
     return Job(name, self, **kwargs)
 
-  # TODO: currently this is synchronous, use async wrapper like in Job to parallelize methods
+  # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
   def run(self, *args, **kwargs):
     """Runs command on every job in the run."""
 

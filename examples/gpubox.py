@@ -37,7 +37,7 @@ def main():
               '/ncluster/notebooks/gpubox_sample.ipynb',
               dont_overwrite=True)
   task.run('cd /ncluster/notebooks')
-  task.run('jupyter notebook', async=True)
+  task.run('jupyter notebook', non_blocking=True)
   print(f'Jupyter notebook will be at http://{task.public_ip}:8888')
 
 

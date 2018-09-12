@@ -71,7 +71,8 @@ def run_launcher():
     job.run('source activate tensorflow_p36')
 
   ip_config = f'--sender-ip={sender.ip} --receiver-ip={receiver.ip}'
-  job.tasks[1].run(f'python tf_adder.py --role=receiver {ip_config}', async=True)
+  job.tasks[1].run(f'python tf_adder.py --role=receiver {ip_config}',
+                   non_blocking=True)
   job.tasks[0].run(f'python tf_adder.py --role=sender {ip_config}')
 
 

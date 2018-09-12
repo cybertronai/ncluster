@@ -65,7 +65,7 @@ class Task(backend.Task):
     for line in install_script.split('\n'):
       self.run(line)
 
-  def run(self, cmd, async=False, ignore_errors=False, **kwargs) -> int:
+  def run(self, cmd, non_blocking=False, ignore_errors=False, **kwargs) -> int:
     if '\n' in cmd:
       cmds = cmd.split('\n')
       self.log(
@@ -94,7 +94,7 @@ class Task(backend.Task):
 
     tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
-    if async:
+    if non_blocking:
       return 0
 
     if not self.wait_for_file(status_fn, max_wait_sec=60):
