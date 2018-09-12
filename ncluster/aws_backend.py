@@ -3,6 +3,7 @@ import glob
 import os
 import shlex
 import signal
+import stat
 import sys
 import threading
 import time
@@ -182,6 +183,13 @@ tmux a
     sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
                                                     'self.ssh_client.open_sftp')
 
+    def maybe_fix_mode(local_fn_, remote_fn_):
+      """Makes remote file execute for locally executable files"""
+      mode = oct(os.stat(local_fn_)[stat.ST_MODE])[-3:]
+      if '7' in mode:
+        self.log(f"Making {remote_fn_} executable with mode {mode}")
+        self.run(f"chmod {mode} {remote_fn_}")
+
     # augmented SFTP client that can transfer directories, from
     # https://stackoverflow.com/a/19974994/419116
     def _put_dir(source, target):
@@ -203,6 +211,7 @@ tmux a
       for item in os.listdir(source):
         if os.path.isfile(os.path.join(source, item)):
           sftp.put(os.path.join(source, item), os.path.join(target, item))
+          maybe_fix_mode(os.path.join(source, item), os.path.join(target, item))
         else:
           _safe_mkdir(f'{target}/{item}')
           _put_dir(f'{source}/{item}', f'{target}/{item}')
@@ -226,6 +235,7 @@ tmux a
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
       sftp.put(local_fn, remote_fn)
+      maybe_fix_mode(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
     self.log("downloading %s" % remote_fn)
