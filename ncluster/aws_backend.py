@@ -75,6 +75,7 @@ class Task(backend.Task):
     elif self._linux_type == 'amazon':
       #      self._current_directory = '/home/ec2-user'
       self.ssh_username = 'ec2-user'
+    self.homedir = '/home/'+self.ssh_username
 
     self.ssh_client = u.ssh_to_task(self)
     self._setup_tmux()
@@ -203,6 +204,11 @@ tmux a
       remote_fn = os.path.basename(local_fn)
 
     self.log('uploading ' + local_fn + ' to ' + remote_fn)
+    remote_fn = remote_fn.replace('~', self.homedir)
+
+    if '/' in remote_fn:
+      remote_dir = os.path.dirname(remote_fn)
+      assert self.file_exists(remote_dir), f"Remote dir {remote_dir} doesn't exist"
     if dont_overwrite and self.file_exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
@@ -216,7 +222,10 @@ tmux a
 
   def download(self, remote_fn, local_fn=''):
     self.log("downloading %s" % remote_fn)
-    sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
+    sftp: paramiko.SFTPClient
+
+    # sometimes open_sftp fails with Administratively prohibited, do retries
+    sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self.log("downloading %s to %s" % (remote_fn, local_fn))
