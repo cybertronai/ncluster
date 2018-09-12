@@ -1,12 +1,11 @@
 # Local implementation of backend.py using separate tmux sessions for jobs
-
+import glob
 import os
 import shlex
 import subprocess
 import sys
 import time
 
-from . import ncluster_globals
 from . import backend
 from . import util
 
@@ -67,10 +66,19 @@ class Task(backend.Task):
       self.run(line)
 
   def run(self, cmd, async=False, ignore_errors=False, **kwargs) -> int:
-    self.run_counter += 1
+    if '\n' in cmd:
+      cmds = cmd.split('\n')
+      self.log(
+        f"Running {len(cmds)} commands at once, returning status of last")
+      status = -1
+      for subcmd in cmds:
+        status = self.run(subcmd)
+      return status
+
     cmd = cmd.strip()
     if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
+    self.run_counter += 1
     self.log("tmux> %s", cmd)
 
     cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
@@ -114,10 +122,16 @@ class Task(backend.Task):
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory. Creates missing directories in path name."""
 
-    self.log('uploading ' + local_fn + ' to ' + remote_fn)
+    # support wildcard through glob
+    if '*' in local_fn:
+      for local_subfn in glob.glob(local_fn):
+        self.upload(local_subfn)
+      return
 
     if remote_fn is None:
       remote_fn = os.path.basename(local_fn)
+    self.log('uploading ' + local_fn + ' to ' + remote_fn)
+
     if dont_overwrite and self.file_exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return

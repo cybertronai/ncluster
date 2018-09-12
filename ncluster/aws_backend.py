@@ -1,5 +1,5 @@
 # AWS implementation of backend.py
-
+import glob
 import os
 import shlex
 import signal
@@ -173,7 +173,14 @@ tmux a
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
+    # support wildcard through glob
+    if '*' in local_fn:
+      for local_subfn in glob.glob(local_fn):
+        self.upload(local_subfn)
+      return
+
+    sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
+                                                    'self.ssh_client.open_sftp')
 
     # augmented SFTP client that can transfer directories, from
     # https://stackoverflow.com/a/19974994/419116
@@ -222,10 +229,7 @@ tmux a
 
   def download(self, remote_fn, local_fn=''):
     self.log("downloading %s" % remote_fn)
-    sftp: paramiko.SFTPClient
-
     # sometimes open_sftp fails with Administratively prohibited, do retries
-    sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
     sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
                                                     'self.ssh_client.open_sftp')
     if not local_fn:
@@ -252,6 +256,14 @@ tmux a
   def run(self, cmd, async=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.5) -> int:
+
+    if '\n' in cmd:
+      cmds = cmd.split('\n')
+      self.log(f"Running {len(cmds)} commands at once, returning status of last")
+      status = -1
+      for subcmd in cmds:
+        status = self.run(subcmd)
+      return status
 
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
@@ -336,6 +348,7 @@ def maybe_start_instance(instance):
       if instance.state['Name'] == 'running':
         break
       time.sleep(10)
+
 
 def maybe_wait_for_initializing_instance(instance):
   """Starts instance if it's stopped, no-op otherwise."""
@@ -481,6 +494,7 @@ def make_task(
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
+        disk_size: int = 0,
         preemptible: Union[None, bool] = None,
         job: Job = None,
         task: backend.Task = None,
@@ -494,6 +508,7 @@ def make_task(
 
 
   Args:
+    disk_size: default size of root disk, in GBs
     create_resources: whether this task will handle resource creation
     job: parent job
     name: see ncluster.make_task
@@ -597,8 +612,22 @@ def make_task(
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
 
+    if disk_size:
+      assert disk_size > 0
+      ebs = {
+        'VolumeSize': disk_size,
+        'VolumeType': 'gp2',
+      }
+
+      args['BlockDeviceMappings'] = [{
+        'DeviceName': '/dev/sda1',
+        'Ebs': ebs
+      }]
+
     # Use high throughput disk (0.065/iops-month = about $1/hour)
     if 'NCLUSTER_AWS_FAST_ROOTDISK' in os.environ:
+      assert not disk_size, f"Specified both disk_size {disk_size} and $NCLUSTER_AWS_FAST_ROOTDISK, they are incompatible as $NCLUSTER_AWS_FAST_ROOTDISK hardwired disk size"
+
       ebs = {
         'VolumeSize': 500,
         'VolumeType': 'io1',
