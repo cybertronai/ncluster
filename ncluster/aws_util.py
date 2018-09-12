@@ -104,14 +104,15 @@ def get_efs_dict():
   # https://stackoverflow.com/questions/47870342/no-ec2-resource-for-efs-objects
 
   efs_client = get_efs_client()
-  response = efs_client.describe_file_systems()
-  response = call_with_retries(efs_client.describe_file_systems, 'efs_client.describe_file_systems')
+  response = call_with_retries(efs_client.describe_file_systems,
+                               'efs_client.describe_file_systems')
   assert is_good_response(response)
   result = OrderedDict()
   for efs_response in response['FileSystems']:
     fs_id = efs_response['FileSystemId']
 
-    tag_response = call_with_retries(efs_client.describe_tags, "efs_client.describe_tags",
+    tag_response = call_with_retries(efs_client.describe_tags,
+                                     "efs_client.describe_tags",
                                      FileSystemId=fs_id, retry_interval_sec=2)
     assert is_good_response(tag_response)
     key = get_name(tag_response['Tags'])
@@ -574,7 +575,8 @@ def get_instance_property(instance, property_name):
   return value
 
 
-def call_with_retries(method, debug_string='', retry_interval_sec=RETRY_INTERVAL_SEC,
+def call_with_retries(method, debug_string='',
+                      retry_interval_sec=RETRY_INTERVAL_SEC,
                       **kwargs):
   while True:
     try:
@@ -582,7 +584,7 @@ def call_with_retries(method, debug_string='', retry_interval_sec=RETRY_INTERVAL
       assert value is not None, f"{debug_string} was None"
       break
     except Exception as e:
-      print(f"retrieving {debug_string} failed with {e}, retrying")
+      print(f"{debug_string} failed with {e.__class__}({e}), retrying")
       time.sleep(retry_interval_sec)
       continue
 
@@ -606,7 +608,6 @@ def get_efs_client():
       # botocore.exceptions.DataNotFoundError: Unable to load data for: endpoints
       util.log(f"get_session().client('efs') failed with {e}, retrying")
       time.sleep(2)
-
 
 
 def is_good_response(response):
@@ -672,7 +673,8 @@ def maybe_create_placement_group(name='', max_retries=10):
     except Exception:
       print("Creating placement group: " + name)
       try:
-        _response = client.create_placement_group(GroupName=name, Strategy='cluster')
+        _response = client.create_placement_group(GroupName=name,
+                                                  Strategy='cluster')
       except Exception:
         # because of race can get InvalidPlacementGroup.Duplicate
         pass
