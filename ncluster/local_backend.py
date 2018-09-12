@@ -97,8 +97,11 @@ class Task(backend.Task):
     if async:
       return 0
 
-    self.wait_for_file(status_fn)
-    assert self.file_exists(status_fn)
+    if not self.wait_for_file(status_fn, max_wait_sec=60):
+      self.log(f"Retrying waiting for {status_fn}")
+    while not self.file_exists(status_fn):
+      self.log(f"Still waiting for {cmd}")
+      self.wait_for_file(status_fn, max_wait_sec=60)
     contents = self.file_read(status_fn)
 
     # if empty wait a bit to allow for race condition
