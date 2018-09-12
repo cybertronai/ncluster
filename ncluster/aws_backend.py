@@ -1,8 +1,9 @@
 # AWS implementation of backend.py
-
+import glob
 import os
 import shlex
 import signal
+import stat
 import sys
 import threading
 import time
@@ -75,6 +76,7 @@ class Task(backend.Task):
     elif self._linux_type == 'amazon':
       #      self._current_directory = '/home/ec2-user'
       self.ssh_username = 'ec2-user'
+    self.homedir = '/home/'+self.ssh_username
 
     self.ssh_client = u.ssh_to_task(self)
     self._setup_tmux()
@@ -172,7 +174,21 @@ tmux a
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory."""
 
-    sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
+    # support wildcard through glob
+    if '*' in local_fn:
+      for local_subfn in glob.glob(local_fn):
+        self.upload(local_subfn)
+      return
+
+    sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
+                                                    'self.ssh_client.open_sftp')
+
+    def maybe_fix_mode(local_fn_, remote_fn_):
+      """Makes remote file execute for locally executable files"""
+      mode = oct(os.stat(local_fn_)[stat.ST_MODE])[-3:]
+      if '7' in mode:
+        self.log(f"Making {remote_fn_} executable with mode {mode}")
+        self.run(f"chmod {mode} {remote_fn_}")
 
     # augmented SFTP client that can transfer directories, from
     # https://stackoverflow.com/a/19974994/419116
@@ -195,6 +211,7 @@ tmux a
       for item in os.listdir(source):
         if os.path.isfile(os.path.join(source, item)):
           sftp.put(os.path.join(source, item), os.path.join(target, item))
+          maybe_fix_mode(os.path.join(source, item), os.path.join(target, item))
         else:
           _safe_mkdir(f'{target}/{item}')
           _put_dir(f'{source}/{item}', f'{target}/{item}')
@@ -203,6 +220,11 @@ tmux a
       remote_fn = os.path.basename(local_fn)
 
     self.log('uploading ' + local_fn + ' to ' + remote_fn)
+    remote_fn = remote_fn.replace('~', self.homedir)
+
+    if '/' in remote_fn:
+      remote_dir = os.path.dirname(remote_fn)
+      assert self.file_exists(remote_dir), f"Remote dir {remote_dir} doesn't exist"
     if dont_overwrite and self.file_exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
@@ -213,10 +235,13 @@ tmux a
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
       sftp.put(local_fn, remote_fn)
+      maybe_fix_mode(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
     self.log("downloading %s" % remote_fn)
-    sftp: paramiko.SFTPClient = self.ssh_client.open_sftp()
+    # sometimes open_sftp fails with Administratively prohibited, do retries
+    sftp: paramiko.SFTPClient = u.call_with_retries(self.ssh_client.open_sftp,
+                                                    'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self.log("downloading %s to %s" % (remote_fn, local_fn))
@@ -241,6 +266,14 @@ tmux a
   def run(self, cmd, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.5) -> int:
+
+    if '\n' in cmd:
+      cmds = cmd.split('\n')
+      self.log(f"Running {len(cmds)} commands at once, returning status of last")
+      status = -1
+      for subcmd in cmds:
+        status = self.run(subcmd)
+      return status
 
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
@@ -325,6 +358,7 @@ def maybe_start_instance(instance):
       if instance.state['Name'] == 'running':
         break
       time.sleep(10)
+
 
 def maybe_wait_for_initializing_instance(instance):
   """Starts instance if it's stopped, no-op otherwise."""
@@ -454,7 +488,7 @@ def maybe_create_name(name, instance_type='', image_name='', tasks=1):
   main_script = os.path.abspath(sys.argv[0])
   script_id = util.alphanumeric_hash(
     main_script + instance_type + image_name + str(tasks))
-  return f"unnamed-{script_id}"
+  return f"unnamedtask-{script_id}"
 
 
 def maybe_create_run_name(run_name, name):
@@ -470,6 +504,7 @@ def make_task(
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
+        disk_size: int = 0,
         preemptible: Union[None, bool] = None,
         job: Job = None,
         task: backend.Task = None,
@@ -483,6 +518,7 @@ def make_task(
 
 
   Args:
+    disk_size: default size of root disk, in GBs
     create_resources: whether this task will handle resource creation
     job: parent job
     name: see ncluster.make_task
@@ -586,8 +622,22 @@ def make_task(
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
 
+    if disk_size:
+      assert disk_size > 0
+      ebs = {
+        'VolumeSize': disk_size,
+        'VolumeType': 'gp2',
+      }
+
+      args['BlockDeviceMappings'] = [{
+        'DeviceName': '/dev/sda1',
+        'Ebs': ebs
+      }]
+
     # Use high throughput disk (0.065/iops-month = about $1/hour)
     if 'NCLUSTER_AWS_FAST_ROOTDISK' in os.environ:
+      assert not disk_size, f"Specified both disk_size {disk_size} and $NCLUSTER_AWS_FAST_ROOTDISK, they are incompatible as $NCLUSTER_AWS_FAST_ROOTDISK hardwired disk size"
+
       ebs = {
         'VolumeSize': 500,
         'VolumeType': 'io1',

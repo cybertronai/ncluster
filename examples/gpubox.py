@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, default='gpubox',
                     help="instance name")
 parser.add_argument('--image-name', type=str,
-                    default='',  # 'Deep Learning AMI (Ubuntu) Version 12.0',
+                    default='Deep Learning AMI (Ubuntu) Version 13.0',
                     help="name of AMI to use ")
 parser.add_argument('--instance-type', type=str, default='g3.4xlarge',
                     help="type of instance")
@@ -28,15 +28,15 @@ def main():
 
   # upload notebook config with provided password
   jupyter_config_fn = _create_jupyter_config(args.password)
-  remote_config_fn = '/home/ubuntu/.jupyter/jupyter_notebook_config.py'
+  remote_config_fn = '~/.jupyter/jupyter_notebook_config.py'
   task.upload(jupyter_config_fn, remote_config_fn)
 
   # upload sample notebook and start Jupyter server
-  task.run('mkdir -p /efs/notebooks')
+  task.run('mkdir -p /ncluster/notebooks')
   task.upload(f'{module_path}/gpubox_sample.ipynb',
-              '/efs/notebooks/gpubox_sample.ipynb',
+              '/ncluster/notebooks/gpubox_sample.ipynb',
               dont_overwrite=True)
-  task.run('cd /efs/notebooks')
+  task.run('cd /ncluster/notebooks')
   task.run('jupyter notebook', non_blocking=True)
   print(f'Jupyter notebook will be at http://{task.public_ip}:8888')
 
