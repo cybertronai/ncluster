@@ -1,6 +1,7 @@
 """Interface for job launching backend."""
 # Job launcher Python API: https://docs.google.com/document/d/1yTkb4IPJXOUaEWksQPCH7q0sjqHgBf3f70cWzfoFboc/edit
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
+import itertools
 import os
 import sys
 import threading
@@ -104,6 +105,16 @@ class Task:
       lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
       self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
       logdir = lll
+
+    # fix permission for all parent directories.
+    # EFS may be shared among various users (ie ubuntu and ec2-user), so make
+    # sure all parent dirs are world-writeable
+    fragments = logdir.split('/')[1:]
+    root = ''
+    for fragment in fragments:
+      root = root+'/'+fragment
+      self.run('sudo chmod 777 ' + root, ignore_errors=True)
+
     self.run(f'mkdir -p {logdir}')
     self.job.run_.logdir_ = logdir
 
@@ -111,7 +122,8 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> Tuple[
+  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> \
+  Tuple[
     str, str]:
     """
 
@@ -309,7 +321,7 @@ class Run:
       # use directory/filename for run name
       main_script = os.path.abspath(sys.argv[0])
       if main_script.find('/') == 1:
-        main_script = 'asdf/'+main_script
+        main_script = 'asdf/' + main_script
       filename = '.'.join(main_script.rsplit('/', 2)[-2:])
       name = f'unnamedrun-{filename}'
 
