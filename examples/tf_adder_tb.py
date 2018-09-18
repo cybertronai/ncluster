@@ -18,9 +18,7 @@ Benchmark done, tensorboard at http://127.0.0.1:6006
 To run on AWS
 aws configure # or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_DEFAULT_REGION
 
-export NCLUSTER_BACKEND=aws
-export NCLUSTER_IMAGE="Deep Learning AMI (Amazon Linux) Version 13.0"
-./tf_adder_tb
+./tf_adder_tb.py --aws
 
 After a minute should see something like this
 
@@ -41,6 +39,8 @@ parser.add_argument("--data-mb", default=128, help="size of vector in MBs")
 parser.add_argument("--sender-ip", default='127.0.0.1')
 parser.add_argument("--receiver-ip", default='127.0.0.1')
 parser.add_argument("--logdir", help='logging directory')
+parser.add_argument("--aws", action='store_true')
+parser.add_argument('--image', default='Deep Learning AMI (Amazon Linux) Version 13.0')
 args = parser.parse_args()
 
 cluster_spec = {'chief': [args.sender_ip + ':32300'],
@@ -60,7 +60,9 @@ def _launch_server(role):
 def run_launcher():
   import ncluster
 
-  job = ncluster.make_job('tf_adder_tb', num_tasks=2)
+  if args.aws:
+    ncluster.set_backend('aws')
+  job = ncluster.make_job('tf_adder_tb', num_tasks=2, image_name=args.image)
   job.upload(__file__)
   this_file = os.path.basename(__file__)
 
