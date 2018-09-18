@@ -213,6 +213,7 @@ def make_task(name='',
 def make_job(name=None,
              num_tasks=0,
              run_name=None,
+             run_=None,
              **kwargs
              ) -> backend.Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
@@ -221,9 +222,11 @@ def make_job(name=None,
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
   tasks = [make_task(f"{i}.{name}") for i in range(num_tasks)]
 
-  dummy_run = backend.Run(run_name)
-  job = backend.Job(name=name, run_object=dummy_run, tasks=tasks, **kwargs)
-  dummy_run.jobs.append(job)
+  if run_ is None:
+    run_ = backend.Run(run_name)
+
+  job = backend.Job(name=name, run_=run_, tasks=tasks, **kwargs)
+  run_.jobs.append(job)
   return job
 
 

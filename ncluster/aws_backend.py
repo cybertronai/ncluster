@@ -188,7 +188,6 @@ tmux a
       self.log("skipping backup file {local_fn}")
       return
 
-    # TODO: reuse sftp client instead of opening new one
     if not self.sftp:
       self.sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
 
