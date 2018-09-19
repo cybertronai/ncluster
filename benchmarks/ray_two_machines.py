@@ -25,6 +25,9 @@ parser.add_argument("--iters", default=10, type=int)
 parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
 parser.add_argument("--ip", default='', type=str,
                     help="internal flag, used to point worker to head node")
+parser.add_argument("--use-xray", default=1, type=int,
+                    help="whether to use XRay backend")
+
 
 args = parser.parse_args()
 
@@ -66,7 +69,8 @@ def run_launcher():
                           instance_type='c5.large',
                           num_tasks=2)
   job.upload(script)
-  job.run('export RAY_USE_XRAY=1')
+  if args.use_xray:
+    job.run('export RAY_USE_XRAY=1')
   job.run('ray stop')
 
   # https://ray.readthedocs.io/en/latest/resources.html?highlight=resources
