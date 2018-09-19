@@ -77,9 +77,8 @@ def run_launcher():
   ps_resource = """--resources='{"ps": 1}'"""
   worker_resource = """--resources='{"worker": 1}'"""
   ps, worker = job.tasks
-  common=''  #" --object-store-memory=5000000000"
-  ps.run(f"ray start --head {ps_resource} --redis-port=6379"+common)
-  worker.run(f"ray start --redis-address={ps.ip}:6379 {worker_resource}"+common)
+  ps.run(f"ray start --head {ps_resource} --redis-port=6379")
+  worker.run(f"ray start --redis-address={ps.ip}:6379 {worker_resource}")
   worker.run(f'./{script} --role=driver --ip={ps.ip}:6379 --size-mb={args.size_mb} --iters={args.iters}')
 
 
