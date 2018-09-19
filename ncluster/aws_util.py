@@ -321,7 +321,7 @@ def lookup_image(wildcard):
   return images[0]
 
 
-def lookup_instance(name: str, instance_type: str = '', _image_name: str = '',
+def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
                     states: tuple = ('running', 'stopped', 'initializing')):
   """Looks up AWS instance for given instance name, like
    simple.worker. If no instance found in current AWS environment, returns None. """
@@ -352,6 +352,9 @@ def lookup_instance(name: str, instance_type: str = '', _image_name: str = '',
 
     if instance_type:
       assert i.instance_type == instance_type, f"Found existing instance for job {name} but different instance type ({i.instance_type}) than requested ({instance_type}), terminate {name} first or use new task name."
+
+    if image_name:
+      assert i.image.name == image_name, f"Found existing instance for job {name} but launched with different image ({i.image.name}) than requested ({image_name}), terminate {name} first or use new task name."
     result.append(i)
 
     assert len(result) < 2, f"Found two instances with name {name}"
