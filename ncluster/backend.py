@@ -49,6 +49,7 @@ class Task:
   job: Any  # can't declare Job because of circular dependency
 
   def __init__(self, name=''):
+    """Wraps execution resources into a task. Runs install_script if present"""
     self.name = name
     self.instance = None
     self.install_script = None

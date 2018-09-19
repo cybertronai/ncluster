@@ -2,6 +2,7 @@
 import glob
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -37,8 +38,8 @@ class Task(backend.Task):
     # local servers sometimes listen only on localhost (TensorBoard), and sometimes only on
     # externally assigned ip address from gethostbyname (Ray), must choose one, so use the localhost for TB compatibility
     # https://github.com/ray-project/ray/issues/1677
-    #    self.public_ip = socket.gethostbyname(socket.gethostname())
-    self.public_ip = '127.0.0.1'
+    self.public_ip = socket.gethostbyname(socket.gethostname())
+    #  self.public_ip = '127.0.0.1'
     self.ip = self.public_ip
 
     self.connect_instructions = 'tmux a -t ' + self.tmux_window
@@ -61,6 +62,7 @@ class Task(backend.Task):
     self.run_counter = 0
 
     self.run('cd ' + self.taskdir)
+    print("Running install script "+install_script)
     self.install_script = install_script
     for line in install_script.split('\n'):
       self.run(line)
@@ -214,13 +216,18 @@ def make_job(name=None,
              num_tasks=0,
              run_name=None,
              run_=None,
+             install_script='',
              **kwargs
              ) -> backend.Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
-  tasks = [make_task(f"{i}.{name}") for i in range(num_tasks)]
+  tasks = [make_task(f"{i}.{name}",
+                     run_name=run_name,
+                     install_script=install_script,
+                     **kwargs
+                     ) for i in range(num_tasks)]
 
   if run_ is None:
     run_ = backend.Run(run_name)
