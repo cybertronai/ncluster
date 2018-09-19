@@ -3,6 +3,6 @@
 ## Usage
 
 ```
-pip install -r https://github.com/diux-dev/ncluster/blob/master/requirements.txt
+pip install -r https://raw.githubusercontent.com/diux-dev/ncluster/master/requirements.txt
 pip install ncluster
 ```
