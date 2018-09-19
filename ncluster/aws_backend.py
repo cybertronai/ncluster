@@ -84,12 +84,12 @@ class Task(backend.Task):
     self.ssh_client = u.ssh_to_task(self)
     self._setup_tmux()
     self._run_raw('mkdir -p ' + self.remote_scratch)
-    self._mount_efs()
 
     if self._is_initialized_fn_present():
       self.log("reusing previous initialized state")
     else:
       self.log("running install script")
+      self._mount_efs()
 
       # bin/bash needed to make self-executable or use with UserData
       self.install_script = '#!/bin/bash\n' + self.install_script
@@ -283,7 +283,7 @@ tmux a
   # this would ensure that commands being sent are not being swallowed
   def run(self, cmd, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
-          check_interval=0.5) -> int:
+          check_interval=0.2) -> int:
 
     if '\n' in cmd:
       cmds = cmd.split('\n')
