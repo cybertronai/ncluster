@@ -2,6 +2,12 @@
 #
 # Example of two process Ray program, worker sends value to parameter
 # server on a different machine
+#
+# Run locally:
+# ./ray_example.py
+#
+# Run on AWS:
+# ./ray_example.py --aws
 import argparse
 import os
 
@@ -17,6 +23,7 @@ parser.add_argument("--ip", default='', type=str,
                     help="ip of head node")
 parser.add_argument("--dim", default=25*1000*1000)
 parser.add_argument("--iters", default=10)
+parser.add_argument("--aws", action="store_true")
 
 args = parser.parse_args()
 
@@ -53,12 +60,15 @@ class ParameterServer(object):
 def run_launcher():
   import ncluster
 
+  if args.aws:
+    ncluster.set_backend('aws')
+
   if ncluster.get_backend() == 'local':
     os.system('ray stop')
 
   script = os.path.basename(__file__)
   assert script in os.listdir('.')
-  job = ncluster.make_job(name="ray3", install_script='pip install ray',
+  job = ncluster.make_job(install_script='pip install ray',
                           image_name=args.image,
                           instance_type='c5.large',
                           num_tasks=2)
