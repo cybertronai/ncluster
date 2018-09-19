@@ -9,8 +9,15 @@
 # Run on AWS:
 # ./ray_example.py --aws
 
+
+# Example timings
+# c5.18xlarge over network: over network: 113 ms, 840MB/second (6.7 Gbps)
+# c5.18xlarge locally: locally: 86 ms, 1218 MB/seconds (9.7 Gbps)
+# macbook pro locally: 978.9 ms, 102.15 MB/second
+
 import argparse
 import os
+import socket
 import time
 
 import numpy as np
@@ -19,16 +26,23 @@ import ray
 parser = argparse.ArgumentParser()
 parser.add_argument("--role", default='launcher', type=str,
                     help="launcher/driver")
-parser.add_argument('--image', default='Deep Learning AMI (Ubuntu) Version 13.0')
-parser.add_argument("--size-mb", default=10, type=int, help='how much data to send at each iteration')
-parser.add_argument("--iters", default=10, type=int)
+parser.add_argument('--image', default='Deep Learning AMI (Ubuntu) Version 14.0')
+parser.add_argument("--size-mb", default=100, type=int, help='how much data to send at each iteration')
+parser.add_argument("--iters", default=100, type=int)
 parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
+parser.add_argument("--xray", default=1, type=int,
+                    help="whether to use XRay backend")
+parser.add_argument('--nightly', default=1, type=int,
+                    help='whether to use nightly version')
+parser.add_argument('--macos', default=0, type=int,
+                    help='whether we are on Mac')
+parser.add_argument('--name', default='ray', type=str,
+                    help='name of the run')
+parser.add_argument('--instance', default='c5.large', type=str,
+                    help='instance type to use')
+
 parser.add_argument("--ip", default='', type=str,
                     help="internal flag, used to point worker to head node")
-parser.add_argument("--use-xray", default=1, type=int,
-                    help="whether to use XRay backend")
-
-
 args = parser.parse_args()
 
 dim = args.size_mb * 250 * 1000
@@ -41,6 +55,9 @@ class Worker(object):
 
   def compute_gradients(self):
     return self.gradients
+
+  def ip(self):
+    return ray.services.get_node_ip_address()
 
 
 @ray.remote(resources={"ps": 1})
@@ -55,6 +72,9 @@ class ParameterServer(object):
   def get_weights(self):
     return self.params
 
+  def ip(self):
+    return ray.services.get_node_ip_address()
+
 
 def run_launcher():
   import ncluster
@@ -64,12 +84,21 @@ def run_launcher():
 
   script = os.path.basename(__file__)
   assert script in os.listdir('.')
-  job = ncluster.make_job(install_script='pip install ray',
+  if args.nightly:
+    if args.macos:
+      install_script = 'pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-macosx_10_6_intel.whl'
+    else:
+      install_script = 'pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-manylinux1_x86_64.whl'
+  else:
+    install_script = 'pip install ray'
+    
+  job = ncluster.make_job(name=args.name,
+                          install_script=install_script,
                           image_name=args.image,
-                          instance_type='c5.large',
+                          instance_type=args.instance,
                           num_tasks=2)
   job.upload(script)
-  if args.use_xray:
+  if args.xray:
     job.run('export RAY_USE_XRAY=1')
   job.run('ray stop')
 
@@ -87,6 +116,9 @@ def run_driver():
 
   worker = Worker.remote()
   ps = ParameterServer.remote()
+  print(f"Worker ip {ray.get(worker.ip.remote())}")
+  print(f"PS ip {ray.get(ps.ip.remote())}")
+  print(f"Driver ip {socket.gethostbyname(socket.gethostname())}")
 
   for iteration in range(args.iters):
     start_time = time.time()
