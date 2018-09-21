@@ -10,24 +10,22 @@ tmux a -t 0
 
 Should see something like this
 ```
-089/100 added 128 MBs in 114.9 ms: 1114.36 MB/second
-090/100 added 128 MBs in 113.4 ms: 1128.61 MB/second
-091/100 added 128 MBs in 113.4 ms: 1128.60 MB/second
+089/100 added 100 MBs in 114.9 ms: 1114.36 MB/second
+090/100 added 100 MBs in 113.4 ms: 1128.61 MB/second
+091/100 added 100 MBs in 113.4 ms: 1128.60 MB/second
 ```
 
 
 To run on AWS
 aws configure # or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_DEFAULT_REGION
-export NCLUSTER_BACKEND=aws
-export NCLUSTER_IMAGE="Deep Learning AMI (Amazon Linux) Version 13.0"
-./tf_adder.py
+./tf_adder.py --aws
 nconnect 0.tf_adder
 
 Should see something like this with t3.large instances
 ```
-089/100 added 128 MBs in 253.8 ms: 504.27 MB/second
-090/100 added 128 MBs in 252.6 ms: 506.63 MB/second
-091/100 added 128 MBs in 255.0 ms: 501.92 MB/second
+089/100 added 100 MBs in 253.8 ms: 504.27 MB/second
+090/100 added 100 MBs in 252.6 ms: 506.63 MB/second
+091/100 added 100 MBs in 255.0 ms: 501.92 MB/second
 ```
 
 """
@@ -39,9 +37,14 @@ import tensorflow as tf
 import time
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
+parser.add_argument("--iters", default=20, help="Maximum number of additions")
+parser.add_argument("--data-mb", default=100, help="size of vector in MBs")
+parser.add_argument('--image',
+                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+
+# internal flags
 parser.add_argument('--role', default='launcher', type=str)
-parser.add_argument("--iters", default=10, help="Maximum number of additions")
-parser.add_argument("--data-mb", default=128, help="size of vector in MBs")
 parser.add_argument("--sender-ip", default='127.0.0.1')
 parser.add_argument("--receiver-ip", default='127.0.0.1')
 args = parser.parse_args()
@@ -62,18 +65,21 @@ def _launch_server(role):
 
 def run_launcher():
   import ncluster
+  if args.aws:
+    ncluster.set_backend('aws')
 
-  job = ncluster.make_job('tf_adder', num_tasks=2)
+  job = ncluster.make_job('tf_adder', num_tasks=2, image_name=args.image)
   job.upload(__file__)
+  
   sender, receiver = job.tasks
   if ncluster.get_backend() == 'aws':
-    # on AWS probably are running in DLAMI, switch into TF-enabled env
+    # on AWS probably running in conda DLAMI, switch into TF-enabled env
     job.run('source activate tensorflow_p36')
 
   ip_config = f'--sender-ip={sender.ip} --receiver-ip={receiver.ip}'
-  job.tasks[1].run(f'python tf_adder.py --role=receiver {ip_config}',
-                   non_blocking=True)
-  job.tasks[0].run(f'python tf_adder.py --role=sender {ip_config}')
+  receiver.run(f'python tf_adder.py --role=receiver {ip_config}',
+               non_blocking=True)
+  sender.run(f'python tf_adder.py --role=sender {ip_config}')
 
 
 def run_receiver():
