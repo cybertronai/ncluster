@@ -38,8 +38,8 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
-parser.add_argument("--iters", default=20, help="Maximum number of additions")
-parser.add_argument("--data-mb", default=100, help="size of vector in MBs")
+parser.add_argument("--iters", default=20, type=int, help="Maximum number of additions")
+parser.add_argument("--data-mb", default=100, type=int, help="size of vector in MBs")
 parser.add_argument('--image',
                     default='Deep Learning AMI (Ubuntu) Version 14.0')
 
@@ -79,7 +79,7 @@ def run_launcher():
   ip_config = f'--sender-ip={sender.ip} --receiver-ip={receiver.ip}'
   receiver.run(f'python tf_adder.py --role=receiver {ip_config}',
                non_blocking=True)
-  sender.run(f'python tf_adder.py --role=sender {ip_config}')
+  sender.run(f'python tf_adder.py --role=sender {ip_config} --iters={args.iters}')
 
 
 def run_receiver():
