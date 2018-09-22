@@ -1,7 +1,6 @@
 """Interface for job launching backend."""
 # Job launcher Python API: https://docs.google.com/document/d/1yTkb4IPJXOUaEWksQPCH7q0sjqHgBf3f70cWzfoFboc/edit
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
-import itertools
 import os
 import sys
 import threading
@@ -77,6 +76,7 @@ class Task:
     else:  # only first task in first job is chielf
       return self.job.tasks.index(self) == 0 and self.job.is_chief()
 
+  # TODO: this should be marked private
   def setup_logdir(self):
     """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
     """
@@ -113,7 +113,7 @@ class Task:
     fragments = logdir.split('/')[1:]
     root = ''
     for fragment in fragments:
-      root = root+'/'+fragment
+      root = root + '/' + fragment
       self.run('sudo chmod 777 ' + root, ignore_errors=True)
 
     self.run(f'mkdir -p {logdir}')
@@ -123,9 +123,7 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> \
-  Tuple[
-    str, str]:
+  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> Tuple[str, str]:
     """
 
     Args:

@@ -3,7 +3,6 @@ import glob
 import os
 import shlex
 import socket
-import subprocess
 import sys
 import time
 
@@ -12,7 +11,8 @@ from . import util
 
 TASKDIR_ROOT = '/tmp/ncluster/task'
 SCRATCH_ROOT = '/tmp/ncluster/scratch'
-LOGDIR_ROOT = os.environ['HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
+LOGDIR_ROOT = os.environ[
+                'HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
 
 
 # TODO: use separate session for each task, for parity with AWS job launcher
@@ -29,7 +29,8 @@ class Task(backend.Task):
 
   def __init__(self, name, tmux_window, *, install_script='', job=None,
                **kwargs):
-    self.tmux_window = tmux_window  # TODO: rename tmux_window to window?
+    self._can_run = False
+    self.tmux_window = tmux_window
     self.name = name
     self.install_script = install_script
     self.job = job
@@ -61,13 +62,18 @@ class Task(backend.Task):
     self._run_raw('mkdir -p ' + self.remote_scratch)
     self.run_counter = 0
 
+    self._cwd = self.taskdir
+    self._can_run = True
     self.run('cd ' + self.taskdir)
-    print("Running install script "+install_script)
+
+    print("Running install script " + install_script)
     self.install_script = install_script
     for line in install_script.split('\n'):
       self.run(line)
 
   def run(self, cmd, non_blocking=False, ignore_errors=False, **kwargs) -> int:
+    if not self._can_run:
+      assert False, "Using .run before initialization finished"
     if '\n' in cmd:
       cmds = cmd.split('\n')
       self.log(
@@ -88,7 +94,7 @@ class Task(backend.Task):
     assert not os.path.exists(status_fn)
 
     cmd = util.shell_strip_comment(cmd)
-    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+    # assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
     self.file_write(cmd_fn, cmd + '\n')
     modified_cmd = f'{cmd} ; echo $? > {status_fn}'
@@ -147,20 +153,24 @@ class Task(backend.Task):
     local_fn = os.path.abspath(local_fn)
     self._run_raw("cp -R %s %s" % (local_fn, remote_fn))
 
-  def download(self, source_fn, target_fn='.'):
-    raise NotImplementedError()
-    # self.log("downloading %s to %s"%(source_fn, target_fn))
-    # source_fn_full = os.path.abspath(source_fn)
-    # os.system("cp %s %s" %(source_fn_full, target_fn))
+  def download(self, remote_fn, local_fn='.'):
+    if local_fn == '.':
+      local_fn = self._cwd
+    #    self.log("downloading %s to %s" % (remote_fn, local_fn))
+    if not remote_fn.startswith('/'):
+      remote_fn = self._cwd + '/' + remote_fn
+    if self.file_exists(remote_fn):
+      os.system(f'cp {remote_fn} {local_fn}')
+    else:
+      raise RuntimeError(f"No such file {remote_fn}")
 
   def file_exists(self, remote_fn):
     return os.path.exists(remote_fn)
 
   def file_read(self, remote_fn):
-    if self.file_exists(remote_fn):
-      return open(remote_fn).read()
-    else:
-      raise RuntimeError(f"No such file {remote_fn}")
+    tmp_fn = self.local_scratch + '/' + str(util.now_micros())
+    self.download(remote_fn, tmp_fn)
+    return open(tmp_fn).read()
 
   def file_write(self, remote_fn, contents):
     def make_temp_fn():
@@ -171,24 +181,27 @@ class Task(backend.Task):
     open(tmp_fn, 'w').write(contents)
     self.upload(tmp_fn, remote_fn)
 
-  def _stream_file(self, fn):
-    if not fn.startswith('/'):
-      fn = self.taskdir + '/' + fn
-
-    if not os.path.exists(fn):
-      os.system('mkdir -p ' + os.path.dirname(fn))
-      os.system('touch ' + fn)
-
-    p = subprocess.Popen(['tail', '-f', fn], stdout=subprocess.PIPE)
-
-    for line in iter(p.stdout.readline, ''):
-      sys.stdout.write(line.decode('ascii', errors='ignore'))
+  # don't include file streaming for now
+  # the issue is that file streaming by default turns on 4K buffering, which makes
+  # streaming a lot less useful. Similar buffering is turned on for piping commands
+  # https://unix.stackexchange.com/questions/25372/turn-off-buffering-in-pipe
+  # def file_stream(self, fn: str) -> None:
+  #   #    if not fn.startswith('/'):
+  #   #      fn = self.taskdir + '/' + fn
+  #
+  #   if not os.path.exists(fn):
+  #     os.system('mkdir -p ' + os.path.dirname(os.path.abspath(fn)))
+  #     os.system('touch ' + fn)
+  #
+  #   p = subprocess.Popen(['tail', '-f', fn], stdout=subprocess.PIPE)
+  #
+  #   for line in iter(p.stdout.readline, ''):
+  #     sys.stdout.write(line.decode('ascii', errors='ignore'))
 
 
 def make_task(name='',
               run_name='',
               **kwargs) -> Task:
-
   if not name:
     script_id = util.alphanumeric_hash(sys.argv[0])
     name = f"unnamedlocaltask-{script_id}"

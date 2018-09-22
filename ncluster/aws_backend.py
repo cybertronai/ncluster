@@ -85,6 +85,8 @@ class Task(backend.Task):
     self._setup_tmux()
     self._run_raw('mkdir -p ' + self.remote_scratch)
 
+    self._can_run = True
+
     if self._is_initialized_fn_present():
       self.log("reusing previous initialized state")
     else:
@@ -284,6 +286,9 @@ tmux a
   def run(self, cmd, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2) -> int:
+
+    if not self._can_run:
+      assert False, "Using .run before initialization finished"
 
     if '\n' in cmd:
       cmds = cmd.split('\n')
@@ -591,7 +596,7 @@ def make_task(
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
                                 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2')
-    log("Using image " + image_name)
+  log("Using image " + image_name)
 
   if preemptible is None:
     preemptible = os.environ.get('NCLUSTER_PREEMPTIBLE', False)
