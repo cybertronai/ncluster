@@ -72,6 +72,13 @@ class Task(backend.Task):
       self.run(line)
 
   def run(self, cmd, non_blocking=False, ignore_errors=False, **kwargs) -> int:
+
+    if os.environ.get('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE', ''):
+      if not util.is_bash_builtin(cmd):
+        return self.run_with_output_on_failure(cmd, non_blocking, ignore_errors)
+      else:
+        self.log("Found bash built-in, using regular run")
+
     if not self._can_run:
       assert False, "Using .run before initialization finished"
     if '\n' in cmd:
@@ -118,6 +125,66 @@ class Task(backend.Task):
     status = int(open(status_fn).read().strip())
 
     if status != 0:
+      if not ignore_errors:
+        raise RuntimeError(f"Command {cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {cmd} returned status {status}")
+
+    return status
+
+  def run_with_output_on_failure(self, cmd, non_blocking=False, ignore_errors=False, **kwargs) -> int:
+    if not self._can_run:
+      assert False, "Using .run before initialization finished"
+    if '\n' in cmd:
+      cmds = cmd.split('\n')
+      self.log(
+        f"Running {len(cmds)} commands at once, returning status of last")
+      status = -1
+      for subcmd in cmds:
+        status = self.run(subcmd)
+      return status
+
+    cmd = cmd.strip()
+    if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
+      return -1
+    self.run_counter += 1
+    self.log("tmux> %s", cmd)
+
+    cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
+    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+    out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
+    assert not os.path.exists(status_fn)
+
+    cmd = util.shell_strip_comment(cmd)
+    # assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+
+    self.file_write(cmd_fn, cmd + '\n')
+    #  modified_cmd = f'{cmd} ; echo $? > {status_fn}'
+    modified_cmd = f'{cmd} > >(tee -a {out_fn}) 2> >(tee -a {out_fn} >&2); echo $? > {status_fn}'
+    modified_cmd = shlex.quote(modified_cmd)
+
+    tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
+    self._run_raw(tmux_cmd)
+    if non_blocking:
+      return 0
+
+    if not self.wait_for_file(status_fn, max_wait_sec=60):
+      self.log(f"Retrying waiting for {status_fn}")
+    while not self.file_exists(status_fn):
+      self.log(f"Still waiting for {cmd}")
+      self.wait_for_file(status_fn, max_wait_sec=60)
+    contents = self.file_read(status_fn)
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(0.01)
+    status = int(open(status_fn).read().strip())
+
+    if status != 0:
+      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
+      self.log(
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(out_fn)}'")
+      self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
