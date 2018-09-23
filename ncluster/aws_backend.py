@@ -69,7 +69,7 @@ class Task(backend.Task):
 
     os.system('mkdir -p ' + self.local_scratch)
 
-    self._initialized_fn = f'{TMPDIR}/{self.name}.initialized'
+    self._initialized_fn = f'is_initialized'
 
     # _current_directory tracks current directory on task machine
     # used for uploading without specifying absolute path on target machine
