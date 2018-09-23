@@ -5,6 +5,7 @@ import shlex
 import socket
 import sys
 import time
+from typing import List
 
 from . import backend
 from . import util
@@ -26,11 +27,16 @@ LOGDIR_ROOT = os.environ[
 class Task(backend.Task):
   """Local tasks interact with tmux session where session name is derived
   from job name, and window names are task ids."""
+  tmux_window_id: int
+  tmux_available_window_ids: List[int]
 
-  def __init__(self, name, tmux_window, *, install_script='', job=None,
+  def __init__(self, name, tmux_session, *, install_script='', job=None,
                **kwargs):
     self._can_run = False
-    self.tmux_window = tmux_window
+    self.tmux_session = tmux_session
+    self.tmux_window_id = 0
+    self.tmux_available_window_ids = [0]
+
     self.name = name
     self.install_script = install_script
     self.job = job
@@ -43,7 +49,7 @@ class Task(backend.Task):
     #  self.public_ip = '127.0.0.1'
     self.ip = self.public_ip
 
-    self.connect_instructions = 'tmux a -t ' + self.tmux_window
+    self.connect_instructions = 'tmux a -t ' + self.tmux_session
 
     # task current dir
     print('name is', name)
@@ -71,11 +77,11 @@ class Task(backend.Task):
     for line in install_script.split('\n'):
       self.run(line)
 
-  def run(self, cmd, non_blocking=False, ignore_errors=False, **kwargs) -> int:
+  def run(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs) -> int:
 
     if os.environ.get('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE', ''):
       if not util.is_bash_builtin(cmd):
-        return self.run_with_output_on_failure(cmd, non_blocking, ignore_errors)
+        return self._run_with_output_on_failure(cmd, non_blocking, ignore_errors, **_kwargs)
       else:
         self.log("Found bash built-in, using regular run")
 
@@ -107,7 +113,8 @@ class Task(backend.Task):
     modified_cmd = f'{cmd} ; echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
-    tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
+    tmux_window = self.tmux_session+':'+str(self.tmux_window_id)
+    tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
     if non_blocking:
       return 0
@@ -132,7 +139,28 @@ class Task(backend.Task):
 
     return status
 
-  def run_with_output_on_failure(self, cmd, non_blocking=False, ignore_errors=False, **kwargs) -> int:
+  def switch_window(self, window_id: int):
+    """
+    Switches currently active tmux window for given task. 0 is the default window
+    Args:
+      window_id: integer id of tmux window to use
+    """
+
+    # windows are numbered sequentially 0, 1, 2, ...
+    # create any missing windows and make them point to the same directory
+    if window_id not in self.tmux_available_window_ids:
+      for i in range(max(self.tmux_available_window_ids)+1, window_id+1):
+        self._run_raw(f'tmux new-window -t {self.tmux_session} -d')
+
+        tmux_window = self.tmux_session + ':' + str(i)
+        cmd = shlex.quote(f'cd {self.taskdir}')
+        tmux_cmd = f'tmux send-keys -t {tmux_window} {cmd} Enter'
+        self._run_raw(tmux_cmd)
+        self.tmux_available_window_ids.append(i)
+
+    self.tmux_window_id = window_id
+
+  def _run_with_output_on_failure(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs) -> int:
     if not self._can_run:
       assert False, "Using .run before initialization finished"
     if '\n' in cmd:
@@ -163,7 +191,8 @@ class Task(backend.Task):
     modified_cmd = f'{cmd} > >(tee -a {out_fn}) 2> >(tee -a {out_fn} >&2); echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
-    tmux_cmd = f'tmux send-keys -t {self.tmux_window} {modified_cmd} Enter'
+    tmux_window = self.tmux_session+':'+str(self.tmux_window_id)
+    tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
     if non_blocking:
       return 0
@@ -277,16 +306,16 @@ def make_task(name='',
     run_name = f'unnamedrun-{name}'
 
   # tmux can't use . for session names
-  tmux_window = name.replace('.', '=') + ':0'
-  tmux_session = tmux_window[:-2]
+  tmux_session = name.replace('.', '=')
+  tmux_window_id = 0
   util.log(f'killing session {tmux_session}')
   os.system(f'tmux kill-session -t {tmux_session}')
-  os.system(f'tmux new-session -s {tmux_session} -n 0 -d')
+  os.system(f'tmux new-session -s {tmux_session} -n {tmux_window_id} -d')
 
   dummy_run = backend.Run(run_name)
   dummy_job = dummy_run.make_job()
   task = Task(name, job=dummy_job,
-              tmux_window=tmux_window,  # propagate optional args
+              tmux_session=tmux_session,  # propagate optional args
               **kwargs)
   dummy_job.tasks.append(task)
   return task
