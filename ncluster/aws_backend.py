@@ -414,8 +414,9 @@ tmux a
     status = int(contents.strip())
 
     if status != 0:
+      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
       self.log(
-        f"Start failing output: \n{'*'*80}\n\n '{self.file_read(out_fn)}'")
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(out_fn)}'")
       self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
