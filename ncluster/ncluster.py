@@ -1,7 +1,6 @@
 from . import aws_backend
 from . import local_backend
 from . import backend
-from . import util
 from . import aws_util as u
 import collections
 
@@ -47,6 +46,10 @@ def get_backend() -> str:
 
 def get_backend_module() -> backend:
   return _backend
+
+
+def running_locally():
+  return get_backend() == 'local'
 
 
 def get_region() -> str:
@@ -97,11 +100,12 @@ def make_job(name: str = '',
   Returns:
     backend.Job
   """
-  return _backend.make_job(name, run_name=run_name, num_tasks=num_tasks, install_script=install_script, **kwargs)
+  return _backend.make_job(name=name, run_name=run_name, num_tasks=num_tasks,
+                           install_script=install_script, **kwargs)
 
 
 def make_run(name: str = '', **kwargs) -> backend.Run:
-  return _backend.make_run(name, **kwargs)
+  return _backend.make_run(name=name, **kwargs)
 
 
 # TODO: remove?

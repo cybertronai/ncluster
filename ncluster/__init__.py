@@ -8,6 +8,8 @@ from . import backend  # TODO: remove?
 
 from .ncluster import get_backend
 from .ncluster import set_backend
+from .ncluster import running_locally
+
 from .ncluster import use_aws
 from .ncluster import use_local
 

@@ -869,6 +869,8 @@ def make_job(
   # this can happen if some instances from previous smaller run are getting reused
   placement_dict = {task.instance.placement_group: task.name for task in
                     job.tasks}
+  # TODO: make placement group name derived from run, to make it deterministic
+  # on individual instance restarts
   if len(placement_dict) > 1:
     util.log("Job tasks are spread over multiple placement groups")
     pprint.pprint(placement_dict)
