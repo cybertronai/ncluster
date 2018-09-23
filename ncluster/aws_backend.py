@@ -131,6 +131,11 @@ tmux a
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
     self._run_raw(f'tmux kill-session -t {tmux_session}')
+    if not os.environ.get("NCLUSTER_NOKILL_TMUX"):
+      self._run_raw(f'tmux kill-session -t {tmux_session}')
+    else:
+      print("Warning, NCLUSTER_NOKILL_TMUX is on, make sure remote tmux prompt is available or things will hang")
+
     self._run_raw(''.join(tmux_cmd))
 
     self._can_run = True
