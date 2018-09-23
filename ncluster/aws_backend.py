@@ -98,7 +98,7 @@ class Task(backend.Task):
       self.install_script += f'\necho ok > {self._initialized_fn}\n'
       self.file_write('install.sh', util.shell_add_echo(self.install_script))
       self.run('bash -e install.sh')  # fail on errors
-      assert self._is_initialized_fn_present()
+      assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
 
     self.connect_instructions = f"""
     To connect to {self.name}
