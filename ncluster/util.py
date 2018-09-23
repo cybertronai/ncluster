@@ -1,3 +1,5 @@
+# Various helper utilities used internally by ncluster project
+
 import random
 import string
 import time
@@ -116,3 +118,22 @@ def reverse_taskname(name: str) -> str:
   assert len(components) <= 3
   return '.'.join(components[::-1])
 
+
+def is_bash_builtin(cmd):
+  """Return true if command is invoking bash built-in
+  """
+  # from compgen -b
+  bash_builtins = ['alias', 'bg', 'bind', 'alias', 'bg', 'bind', 'break',
+                   'builtin', 'caller', 'cd', 'command', 'compgen', 'complete',
+                   'compopt', 'continue', 'declare', 'dirs', 'disown', 'echo',
+                   'enable', 'eval', 'exec', 'exit', 'export', 'false', 'fc',
+                   'fg', 'getopts', 'hash', 'help', 'history', 'jobs', 'kill',
+                   'let', 'local', 'logout', 'mapfile', 'popd', 'printf',
+                   'pushd', 'pwd', 'read', 'readarray', 'readonly', 'return',
+                   'set', 'shift', 'shopt', 'source', 'suspend', 'test',
+                   'times', 'trap', 'true', 'type', 'typeset', 'ulimit',
+                   'umask', 'unalias', 'unset', 'wait']
+  toks = cmd.split()
+  if toks and toks[0] in bash_builtins:
+    return True
+  return False

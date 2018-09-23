@@ -130,7 +130,6 @@ tmux a
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
-    self._run_raw(f'tmux kill-session -t {tmux_session}')
     if not os.environ.get("NCLUSTER_NOKILL_TMUX"):
       self._run_raw(f'tmux kill-session -t {tmux_session}')
     else:
@@ -196,14 +195,16 @@ tmux a
       return
 
     if not self.sftp:
-      self.sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
+      self.sftp = u.call_with_retries(self.ssh_client.open_sftp,
+                                      'self.ssh_client.open_sftp')
 
     def maybe_fix_mode(local_fn_, remote_fn_):
       """Makes remote file execute for locally executable files"""
       mode = oct(os.stat(local_fn_)[stat.ST_MODE])[-3:]
       if '7' in mode:
         self.log(f"Making {remote_fn_} executable with mode {mode}")
-        self.run(f"chmod {mode} {remote_fn_}")
+        # use raw run, in case tmux is unavailable
+        self._run_raw(f"chmod {mode} {remote_fn_}")
 
     # augmented SFTP client that can transfer directories, from
     # https://stackoverflow.com/a/19974994/419116
@@ -262,7 +263,8 @@ tmux a
     # root cause could be too many SSH connections being open
     # https://unix.stackexchange.com/questions/14160/ssh-tunneling-error-channel-1-open-failed-administratively-prohibited-open
     if not self.sftp:
-      self.sftp = u.call_with_retries(self.ssh_client.open_sftp, 'self.ssh_client.open_sftp')
+      self.sftp = u.call_with_retries(self.ssh_client.open_sftp,
+                                      'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self.log("downloading %s to %s" % (remote_fn, local_fn))
@@ -291,6 +293,16 @@ tmux a
   def run(self, cmd, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2) -> int:
+
+    if os.environ.get('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE', ''):
+      # experimental version that captures output and prints it on failure
+      # redirection things break bash commands, so
+      # don't redirect on bash commands like source
+      if not util.is_bash_builtin(cmd):
+        return self.run_with_output_on_failure(cmd, non_blocking, ignore_errors,
+                                               max_wait_sec)
+      else:
+        self.log("Found bash built-in, using regular run")
 
     if not self._can_run:
       assert False, "Using .run before initialization finished"
@@ -326,6 +338,68 @@ tmux a
     if non_blocking:
       return 0
 
+    if not self.wait_for_file(status_fn, max_wait_sec=30):
+      self.log(f"Retrying waiting for {status_fn}")
+    while not self.file_exists(status_fn):
+      self.log(f"Still waiting for {cmd}")
+      self.wait_for_file(status_fn, max_wait_sec=30)
+    contents = self.file_read(status_fn)
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+      contents = self.file_read(status_fn)
+    status = int(contents.strip())
+
+    if status != 0:
+      if not ignore_errors:
+        raise RuntimeError(f"Command {cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {cmd} returned status {status}")
+
+    return status
+
+  def run_with_output_on_failure(self, cmd, non_blocking=False,
+                                 ignore_errors=False,
+                                 max_wait_sec=365 * 24 * 3600,
+                                 check_interval=0.2) -> int:
+    """Experimental version of run propagates error messages to client. The
+    downside is that nothing gets printed on console."""
+
+    if not self._can_run:
+      assert False, "Using .run before initialization finished"
+
+    if '\n' in cmd:
+      assert False, "Don't support multi-line for run2"
+
+    cmd = cmd.strip()
+    if cmd.startswith('#'):  # ignore empty/commented out lines
+      return -1
+    self.run_counter += 1
+    self.log("tmux> %s", cmd)
+
+    cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
+    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+    out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
+
+    cmd = util.shell_strip_comment(cmd)
+    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+
+    # modify command to dump shell success status into file
+    self.file_write(cmd_fn, cmd + '\n')
+
+    #    modified_cmd = f'{cmd} > {out_fn} 2>&1; echo $? > {status_fn}'
+    # https://stackoverflow.com/a/692407/419116
+    # $cmd > >(tee -a fn) 2> >(tee -a fn >&2)
+
+    modified_cmd = f'{cmd} > >(tee -a {out_fn}) 2> >(tee -a {out_fn} >&2); echo $? > {status_fn}'
+    modified_cmd = shlex.quote(modified_cmd)
+
+    tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
+    self._run_raw(tmux_cmd)
+    if non_blocking:
+      return 0
+
     if not self.wait_for_file(status_fn, max_wait_sec=60):
       self.log(f"Retrying waiting for {status_fn}")
     while not self.file_exists(status_fn):
@@ -340,6 +414,9 @@ tmux a
     status = int(contents.strip())
 
     if status != 0:
+      self.log(
+        f"Start failing output: \n{'*'*80}\n\n '{self.file_read(out_fn)}'")
+      self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
