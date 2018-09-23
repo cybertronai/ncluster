@@ -6,15 +6,19 @@ TensorFlow distributed benchmark. Create sender/receiver tasks and add arrays fr
 
 To run locally:
 ./tf_two_machines.py
-tmux a -t 0
-
 Should see something like this
+
 ```
-089/100 added 100 MBs in 114.9 ms: 1114.36 MB/second
-090/100 added 100 MBs in 113.4 ms: 1128.61 MB/second
-091/100 added 100 MBs in 113.4 ms: 1128.60 MB/second
+005/11 added 100 MBs in 78.9 ms: 1266.98 MB/second
+006/11 added 100 MBs in 78.1 ms: 1280.07 MB/second
+007/11 added 100 MBs in 78.1 ms: 1280.56 MB/second
+008/11 added 100 MBs in 81.8 ms: 1222.76 MB/second
+009/11 added 100 MBs in 79.5 ms: 1258.54 MB/second
+010/11 added 100 MBs in 76.6 ms: 1305.64 MB/second
+min:    76.59, median:    78.80, mean:    88.34
 ```
 
+To interact with task 1 (the driver), do "tmux a -t 1"
 
 To run on AWS
 aws configure # or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_DEFAULT_REGION
@@ -55,10 +59,14 @@ import numpy as np
 import tensorflow as tf
 import time
 
+import util
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
-parser.add_argument("--iters", default=11, type=int, help="Maximum number of additions")
-parser.add_argument("--data-mb", default=100, type=int, help="size of vector in MBs")
+parser.add_argument("--iters", default=11, type=int,
+                    help="Maximum number of additions")
+parser.add_argument("--size-mb", default=100, type=int,
+                    help="size of vector in MBs")
 parser.add_argument('--image',
                     default='Deep Learning AMI (Ubuntu) Version 14.0')
 parser.add_argument('--name',
@@ -91,8 +99,13 @@ def run_launcher():
 
   job = ncluster.make_job(args.name, num_tasks=2, image_name=args.image)
   job.upload(__file__)
-  
+  job.upload('util.py')
+
   sender, receiver = job.tasks
+  # kill python just for when tmux session reuse is on
+  sender._run_raw('killall python')
+  receiver._run_raw('killall python')
+
   if ncluster.get_backend() == 'aws':
     # on AWS probably running in conda DLAMI, switch into TF-enabled env
     job.run('source activate tensorflow_p36')
@@ -100,7 +113,8 @@ def run_launcher():
   ip_config = f'--sender-ip={sender.ip} --receiver-ip={receiver.ip}'
   receiver.run(f'python {__file__} --role=receiver {ip_config}',
                non_blocking=True)
-  sender.run(f'python {__file__} --role=sender {ip_config} --iters={args.iters}')
+  sender.run(
+    f'python {__file__} --role=sender {ip_config} --iters={args.iters}')
   print(sender.file_read('out'))
 
 
@@ -111,37 +125,39 @@ def run_receiver():
 
 
 def run_sender():
-  param_size = 250 * 1000 * args.data_mb  # 1MB is 250k integers
+  param_size = 250 * 1000 * args.size_mb  # 1MB is 250k integers
+  log = util.FileLogger('out')
   with tf.device('/job:chief/task:0'):
-    grads = tf.fill([param_size], 1.)
+    #    grads = tf.fill([param_size], 1.)
+    grads = tf.Variable(tf.ones([param_size]))
 
   with tf.device('/job:receiver/task:0'):
     params = tf.Variable(tf.ones([param_size]))
-    add_op = params.assign_add(grads).op
+    add_op = params.assign(grads).op
 
   server = _launch_server('chief')
   sess = tf.Session(server.target)
-
   sess.run(tf.global_variables_initializer())
+    # except Exception as e:
+    #   # sometimes .run fails with .UnavailableError: OS Error
+    #   log(f"initialization failed with {e}, retrying in 1 second")
+    #   time.sleep(1)
 
   time_list = []
-  result = ''
   for i in range(args.iters):
     start_time = time.perf_counter()
     sess.run(add_op)
-    elapsed_time_ms = (time.perf_counter() - start_time)*1000
+    elapsed_time_ms = (time.perf_counter() - start_time) * 1000
     time_list.append(elapsed_time_ms)
-    rate = args.data_mb / (elapsed_time_ms/1000)
-    line = '%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (i, args.iters, args.data_mb, elapsed_time_ms, rate)
-    print(line)
-    result = result + line + '\n'
+    rate = args.size_mb / (elapsed_time_ms / 1000)
+    log('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (
+      i, args.iters, args.size_mb, elapsed_time_ms, rate))
 
   min = np.min(time_list)
   median = np.median(time_list)
-  
-  result += f"min: {min:8.2f}, median: {median:8.2f}, mean: {np.mean(time_list):8.2f}"
-  with open('out', 'w') as f:
-    f.write(result+'\n')
+
+  log(
+    f"min: {min:8.2f}, median: {median:8.2f}, mean: {np.mean(time_list):8.2f}")
 
 
 def main():

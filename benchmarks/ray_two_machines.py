@@ -4,10 +4,10 @@
 # server on a different machine
 #
 # Run locally:
-# ./ray_example.py
+# ./raw_two_machines.py
 #
 # Run on AWS:
-# ./ray_example.py --aws
+# ./raw_two_machines.py --aws
 
 
 # Example timings
@@ -18,29 +18,29 @@
 import argparse
 import os
 import socket
+import subprocess
 import time
 
 import numpy as np
 import ray
 
+import util
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--role", default='launcher', type=str,
                     help="launcher/driver")
-parser.add_argument('--image', default='Deep Learning AMI (Ubuntu) Version 14.0')
-parser.add_argument("--size-mb", default=100, type=int, help='how much data to send at each iteration')
-parser.add_argument("--iters", default=100, type=int)
+parser.add_argument('--image',
+                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+parser.add_argument("--size-mb", default=100, type=int,
+                    help='how much data to send at each iteration')
+parser.add_argument("--iters", default=11, type=int)
 parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
 parser.add_argument("--xray", default=1, type=int,
                     help="whether to use XRay backend")
 parser.add_argument('--nightly', default=1, type=int,
                     help='whether to use nightly version')
-parser.add_argument('--macos', default=0, type=int,
-                    help='whether we are on Mac')
-parser.add_argument('--name', default='ray', type=str,
+parser.add_argument('--name', default='ray_two_machines', type=str,
                     help='name of the run')
-parser.add_argument('--instance', default='c5.large', type=str,
-                    help='instance type to use')
-
 parser.add_argument("--ip", default='', type=str,
                     help="internal flag, used to point worker to head node")
 args = parser.parse_args()
@@ -66,7 +66,7 @@ class ParameterServer(object):
     self.params = np.zeros(dim, dtype=np.float32)
 
   def assign_add(self, grad):
-    self.params += grad
+    self.params = grad  # use = just to get network overhead
     return self.params
 
   def get_weights(self):
@@ -76,28 +76,32 @@ class ParameterServer(object):
     return ray.services.get_node_ip_address()
 
 
+
 def run_launcher():
   import ncluster
 
   if args.aws:
     ncluster.set_backend('aws')
 
-  script = os.path.basename(__file__)
-  assert script in os.listdir('.')
   if args.nightly:
-    if args.macos:
+    # running locally MacOS
+    if 'Darwin' in util.ossystem('uname') and not args.aws:
       install_script = 'pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-macosx_10_6_intel.whl'
     else:
       install_script = 'pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-manylinux1_x86_64.whl'
   else:
     install_script = 'pip install ray'
-    
+
   job = ncluster.make_job(name=args.name,
                           install_script=install_script,
                           image_name=args.image,
-                          instance_type=args.instance,
                           num_tasks=2)
-  job.upload(script)
+  ps, worker = job.tasks
+  ps._run_raw('killall python')
+  worker._run_raw('killall python')
+  
+  job.upload(__file__)
+  job.upload('util.py')
   if args.xray:
     job.run('export RAY_USE_XRAY=1')
   job.run('ray stop')
@@ -105,10 +109,12 @@ def run_launcher():
   # https://ray.readthedocs.io/en/latest/resources.html?highlight=resources
   ps_resource = """--resources='{"ps": 1}'"""
   worker_resource = """--resources='{"worker": 1}'"""
-  ps, worker = job.tasks
+  
   ps.run(f"ray start --head {ps_resource} --redis-port=6379")
   worker.run(f"ray start --redis-address={ps.ip}:6379 {worker_resource}")
-  worker.run(f'./{script} --role=driver --ip={ps.ip}:6379 --size-mb={args.size_mb} --iters={args.iters}')
+  worker.run(
+    f'./{__file__} --role=driver --ip={ps.ip}:6379 --size-mb={args.size_mb} --iters={args.iters}')
+  print(worker.file_read('out'))
 
 
 def run_driver():
@@ -116,18 +122,25 @@ def run_driver():
 
   worker = Worker.remote()
   ps = ParameterServer.remote()
-  print(f"Worker ip {ray.get(worker.ip.remote())}")
-  print(f"PS ip {ray.get(ps.ip.remote())}")
-  print(f"Driver ip {socket.gethostbyname(socket.gethostname())}")
+  log = util.FileLogger('out')
+  log(f"Worker ip {ray.get(worker.ip.remote())}")
+  log(f"PS ip {ray.get(ps.ip.remote())}")
+  log(f"Driver ip {socket.gethostbyname(socket.gethostname())}")
 
-  for iteration in range(args.iters):
-    start_time = time.time()
+  time_list = []
+  for i in range(args.iters):
+    start_time = time.perf_counter()
     grads = worker.compute_gradients.remote()
     result = ps.assign_add.remote(grads)
     result = ray.get(result)[0]
-    elapsed_time = time.time() - start_time
-    rate = args.size_mb / elapsed_time
-    print('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (result, args.iters, args.size_mb, elapsed_time * 1000, rate))
+    elapsed_time_ms = (time.perf_counter() - start_time)*1000
+    time_list.append(elapsed_time_ms)
+    rate = args.size_mb / (elapsed_time_ms/1000)
+    log('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (i, args.iters, args.size_mb, elapsed_time_ms, rate))
+    
+  min = np.min(time_list)
+  median = np.median(time_list)
+  log(f"min: {min:8.2f}, median: {median:8.2f}, mean: {np.mean(time_list):8.2f}")
 
 
 def main():
