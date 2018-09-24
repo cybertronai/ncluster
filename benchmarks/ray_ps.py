@@ -2,9 +2,6 @@
 #
 # Ray parameter server benchmark
 #
-# 100MB vectors
-# min:   158.16, median:   243.20, mean:   242.87
-
 # python ray_ps.py --aws --num-ps=1 --num-workers=1 --size-mb=100 --iters=100
 
 # # 1 worker, 1 ps
