@@ -1,0 +1,4 @@
+tf_two_machines -- 500 on t3, 910 on c3
+
+30ms on local transfers, 60ms on AWS c5.18xlarge
+Using multiple ps shards, can do 48ms
