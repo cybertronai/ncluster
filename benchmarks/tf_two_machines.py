@@ -67,6 +67,8 @@ parser.add_argument("--iters", default=11, type=int,
                     help="Maximum number of additions")
 parser.add_argument("--size-mb", default=100, type=int,
                     help="size of vector in MBs")
+parser.add_argument("--shards", default=1, type=int,
+                    help="how many ways to shard the variable")
 parser.add_argument('--image',
                     default='Deep Learning AMI (Ubuntu) Version 14.0')
 parser.add_argument('--name',
@@ -103,8 +105,9 @@ def run_launcher():
 
   sender, receiver = job.tasks
   # kill python just for when tmux session reuse is on
-  sender._run_raw('killall python')
-  receiver._run_raw('killall python')
+  if not ncluster.running_locally():
+    sender._run_raw('killall python')
+    receiver._run_raw('killall python')
 
   if ncluster.get_backend() == 'aws':
     # on AWS probably running in conda DLAMI, switch into TF-enabled env
@@ -114,7 +117,7 @@ def run_launcher():
   receiver.run(f'python {__file__} --role=receiver {ip_config}',
                non_blocking=True)
   sender.run(
-    f'python {__file__} --role=sender {ip_config} --iters={args.iters}')
+    f'python {__file__} --role=sender {ip_config} --iters={args.iters} --size-mb={args.size_mb} --shards={args.shards}')
   print(sender.file_read('out'))
 
 
@@ -125,16 +128,25 @@ def run_receiver():
 
 
 def run_sender():
-  param_size = 250 * 1000 * args.size_mb  # 1MB is 250k integers
+  param_size = 250 * 1000 * args.size_mb // args.shards  # 1MB is 250k integers
   log = util.FileLogger('out')
+  grads_array = []
   with tf.device('/job:chief/task:0'):
     #    grads = tf.fill([param_size], 1.)
-    grads = tf.Variable(tf.ones([param_size]))
+    for i in range(args.shards):
+      grads = tf.Variable(tf.ones([param_size]))
+      grads_array.append(grads)
 
+  params_array = []
+  add_op_array = []
   with tf.device('/job:receiver/task:0'):
-    params = tf.Variable(tf.ones([param_size]))
-    add_op = params.assign(grads).op
-
+    for i in range(args.shards):
+      params = tf.Variable(tf.ones([param_size]))
+      add_op = params.assign(grads_array[i]).op
+      params_array.append(params)
+      add_op_array.append(add_op)
+    add_op = tf.group(*add_op_array)
+    
   server = _launch_server('chief')
   sess = tf.Session(server.target)
   sess.run(tf.global_variables_initializer())
@@ -150,7 +162,7 @@ def run_sender():
     elapsed_time_ms = (time.perf_counter() - start_time) * 1000
     time_list.append(elapsed_time_ms)
     rate = args.size_mb / (elapsed_time_ms / 1000)
-    log('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (
+    log('%03d/%d sent %d MBs in %.1f ms: %.2f MB/second' % (
       i, args.iters, args.size_mb, elapsed_time_ms, rate))
 
   min = np.min(time_list)

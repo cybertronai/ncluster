@@ -11,9 +11,12 @@
 
 
 # Example timings
-# c5.18xlarge over network: over network: 113 ms, 840MB/second (6.7 Gbps)
-# c5.18xlarge locally: locally: 86 ms, 1218 MB/seconds (9.7 Gbps)
+# c5.18xlarge over network: over network: 63.0 ms: 1586.76 MB/second
+# c5.9xlarge over network: 399/400 added 100 MBs in 85.5 ms: 1170.26 MB/second
+# c5.18xlarge locally: 86 ms, 1218 MB/seconds (9.7 Gbps)
 # macbook pro locally: 978.9 ms, 102.15 MB/second
+
+# Bottom line: 30ms locally, 60ms over network
 
 import argparse
 import os
@@ -65,7 +68,7 @@ class ParameterServer(object):
   def __init__(self):
     self.params = np.zeros(dim, dtype=np.float32)
 
-  def assign_add(self, grad):
+  def receive(self, grad):
     self.params = grad  # use = just to get network overhead
     return self.params
 
@@ -97,8 +100,9 @@ def run_launcher():
                           image_name=args.image,
                           num_tasks=2)
   ps, worker = job.tasks
-  ps._run_raw('killall python')
-  worker._run_raw('killall python')
+  if not ncluster.running_locally():
+    ps._run_raw('killall python', ignore_errors=True)
+    worker._run_raw('killall python', ignore_errors=True)
   
   job.upload(__file__)
   job.upload('util.py')
@@ -131,12 +135,12 @@ def run_driver():
   for i in range(args.iters):
     start_time = time.perf_counter()
     grads = worker.compute_gradients.remote()
-    result = ps.assign_add.remote(grads)
-    result = ray.get(result)[0]
+    result = ps.receive.remote(grads)
+    ray.wait([result])
     elapsed_time_ms = (time.perf_counter() - start_time)*1000
     time_list.append(elapsed_time_ms)
     rate = args.size_mb / (elapsed_time_ms/1000)
-    log('%03d/%d added %d MBs in %.1f ms: %.2f MB/second' % (i, args.iters, args.size_mb, elapsed_time_ms, rate))
+    log('%03d/%d sent %d MBs in %.1f ms: %.2f MB/second' % (i, args.iters, args.size_mb, elapsed_time_ms, rate))
     
   min = np.min(time_list)
   median = np.median(time_list)

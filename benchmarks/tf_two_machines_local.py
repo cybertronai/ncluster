@@ -2,6 +2,20 @@
 """
 Runs distributed benchmark on a single machine remotely
 
+# 1 shard: 88ms
+# 4 shards: 56ms
+# 8 shards: 51ms
+# 16 shards: 55ms
+
+# increase size 8x
+python tf_two_machines_local.py --shards=8 --iters=100 --size-mb=800 --aws
+# 416ms
+
+Bottom line: 1.6-1.9 GB/second when running locally
+Going 1->4 shards saves 30%, 4->8 shards another 5%
+
+i3.metal 30% slower than c5.18xlarge
+
 """
 
 import argparse
@@ -58,18 +72,18 @@ def run_launcher():
   # kill python just for when tmux session reuse is on
   if not ncluster.running_locally():
     # on AWS probably running in conda DLAMI, switch into TF-enabled env
-    worker._run_raw('killall python')
+    worker._run_raw('killall python', ignore_errors=True)
     worker.run('source activate tensorflow_p36')
 
   ip_config = f'--sender-ip={worker.ip} --receiver-ip={worker.ip}'
   worker.run(f'python {__file__} --role=receiver {ip_config}',
                non_blocking=True)
   worker.switch_window(1)  # run in new tmux window
+  if not ncluster.running_locally():
+    worker.run('source activate tensorflow_p36')
   worker.run(
     f'python {__file__} --role=sender {ip_config} --iters={args.iters} --size-mb={args.size_mb} --shards={args.shards}')
   print(worker.file_read('out'))
-  worker.switch_window(1)  # run in new tmux window
-  worker.run('echo "hi"')
 
 
 def run_receiver():
