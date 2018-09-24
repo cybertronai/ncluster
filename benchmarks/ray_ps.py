@@ -17,8 +17,8 @@
 
 # # 4 worker, 4 ps
 # python ray_ps.py --aws --num-ps=4 --num-workers=4 --size-mb=100 --iters=100
-# 098/100 sent 100 MBs in 238.5 ms: 419.28 MB/second
-# 099/100 sent 100 MBs in 242.0 ms: 413.22 MB/second
+# 098/100 sent 400 MBs in 238.5 ms: 419.28 MB/second
+# 099/100 sent 400 MBs in 242.0 ms: 413.22 MB/second
 # min:   219.90, median:   241.51, mean:   245.95
 # (54ms per worker since 4x more work done)
 
@@ -171,7 +171,7 @@ def run_driver():
     elapsed_time_ms = (time.perf_counter() - start_time)*1000
     time_list.append(elapsed_time_ms)
     rate = args.size_mb / (elapsed_time_ms/1000)
-    log('%03d/%d sent %d MBs in %.1f ms: %.2f MB/second' % (i, args.iters, args.size_mb, elapsed_time_ms, rate))
+    log('%03d/%d sent %d MBs in %.1f ms: %.2f MB/second' % (i, args.iters, args.size_mb*args.num_workers, elapsed_time_ms, rate))
     
   min = np.min(time_list)
   median = np.median(time_list)
