@@ -7,7 +7,7 @@ import stat
 import sys
 import threading
 import time
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 import paramiko
 import pprint
 
@@ -25,6 +25,9 @@ LOGDIR_ROOT = '/ncluster/runs'
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
   creation of SSH session, shutdown"""
+
+  tmux_window_id: int
+  tmux_available_window_ids: List[int]
 
   sftp: paramiko.SFTPClient
 
@@ -118,22 +121,24 @@ tmux a
   def _setup_tmux(self):
     self.log("Setting up tmux")
 
-    self._tmux_window = f"{self.name}-main:0".replace('.', '=')
-    tmux_session = self._tmux_window[:-2]
+    self.tmux_session = self.name.replace('.', '=')
+    self.tmux_window_id = 0
+    self.tmux_available_window_ids = [0]
 
     tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
                 f'set-option -g mouse on \; ',
-                f'new-session -s {tmux_session} -n 0 -d']
+                f'new-session -s {self.tmux_session} -n 0 -d']
 
     # hack to get around Amazon linux not having tmux
     if self._linux_type == 'amazon':
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
-    if not os.environ.get("NCLUSTER_NOKILL_TMUX"):
-      self._run_raw(f'tmux kill-session -t {tmux_session}')
+    if not int(os.environ.get("NCLUSTER_NOKILL_TMUX", "0")):
+      self._run_raw(f'tmux kill-session -t {self.tmux_session}', ignore_errors=True)
     else:
-      print("Warning, NCLUSTER_NOKILL_TMUX is on, make sure remote tmux prompt is available or things will hang")
+      print(
+        "Warning, NCLUSTER_NOKILL_TMUX is on, make sure remote tmux prompt is available or things will hang")
 
     self._run_raw(''.join(tmux_cmd))
 
@@ -271,7 +276,7 @@ tmux a
     self.sftp.get(remote_fn, local_fn)
 
   def file_exists(self, remote_fn):
-    stdout, stderr = self._run_raw('stat ' + remote_fn)
+    stdout, stderr = self._run_raw('stat ' + remote_fn, ignore_errors=True)
     return 'No such file' not in stdout
 
   def file_write(self, remote_fn, contents):
@@ -299,8 +304,9 @@ tmux a
       # redirection things break bash commands, so
       # don't redirect on bash commands like source
       if not util.is_bash_builtin(cmd):
-        return self.run_with_output_on_failure(cmd, non_blocking, ignore_errors,
-                                               max_wait_sec)
+        return self._run_with_output_on_failure(cmd, non_blocking,
+                                                ignore_errors,
+                                                max_wait_sec)
       else:
         self.log("Found bash built-in, using regular run")
 
@@ -333,8 +339,9 @@ tmux a
     modified_cmd = f'{cmd}; echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
-    tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
-    self._run_raw(tmux_cmd)
+    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
+    tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
     if non_blocking:
       return 0
 
@@ -359,10 +366,26 @@ tmux a
 
     return status
 
-  def run_with_output_on_failure(self, cmd, non_blocking=False,
-                                 ignore_errors=False,
-                                 max_wait_sec=365 * 24 * 3600,
-                                 check_interval=0.2) -> int:
+  def switch_window(self, window_id: int):
+    """
+    Switches currently active tmux window for given task. 0 is the default window
+    Args:
+      window_id: integer id of tmux window to use
+    """
+
+    # windows are numbered sequentially 0, 1, 2, ...
+    # create any missing windows and make them point to the same directory
+    if window_id not in self.tmux_available_window_ids:
+      for i in range(max(self.tmux_available_window_ids) + 1, window_id + 1):
+        self._run_raw(f'tmux new-window -t {self.tmux_session} -d')
+        self.tmux_available_window_ids.append(i)
+
+    self.tmux_window_id = window_id
+
+  def _run_with_output_on_failure(self, cmd, non_blocking=False,
+                                  ignore_errors=False,
+                                  max_wait_sec=365 * 24 * 3600,
+                                  check_interval=0.2) -> int:
     """Experimental version of run propagates error messages to client. The
     downside is that nothing gets printed on console."""
 
@@ -395,16 +418,20 @@ tmux a
     modified_cmd = f'{cmd} > >(tee -a {out_fn}) 2> >(tee -a {out_fn} >&2); echo $? > {status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
-    tmux_cmd = f"tmux send-keys -t {self._tmux_window} {modified_cmd} Enter"
-    self._run_raw(tmux_cmd)
+    start_time = time.time()
+    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
+    tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
     if non_blocking:
       return 0
 
     if not self.wait_for_file(status_fn, max_wait_sec=60):
       self.log(f"Retrying waiting for {status_fn}")
-    while not self.file_exists(status_fn):
+    elapsed_time = time.time() - start_time
+    while not self.file_exists(status_fn) and elapsed_time < max_wait_sec:
       self.log(f"Still waiting for {cmd}")
       self.wait_for_file(status_fn, max_wait_sec=60)
+      elapsed_time = time.time() - start_time
     contents = self.file_read(status_fn)
 
     # if empty wait a bit to allow for race condition
@@ -425,7 +452,7 @@ tmux a
 
     return status
 
-  def _run_raw(self, cmd: str) -> Tuple[str, str]:
+  def _run_raw(self, cmd: str, ignore_errors=False) -> Tuple[str, str]:
     """Runs given cmd in the task using current SSH session, returns
     stdout/stderr as strings. Because it blocks until cmd is done, use it for
     short cmds. Silently ignores failing commands.
@@ -438,13 +465,18 @@ tmux a
     # TODO(y), transition to SSHClient and assert fail on bad error codes
     # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
     # sometimes fails with (1, 'Administratively prohibited'), possibly because of parallel connections
+    chan: paramiko.Channel = self.ssh_client.get_transport().open_session()
     stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command,
                                                 command=cmd, get_pty=True)
     stdout_str = stdout.read().decode()
     stderr_str = stderr.read().decode()
-    if 'command not found' in stdout_str or 'command not found' in stderr_str:
-      self.log(f"command ({cmd}) failed with ({stdout_str}), ({stderr_str})")
-      assert False, "run_ssh command failed"
+    if stdout.channel.recv_exit_status() != 0:
+      if not ignore_errors:
+        self.log(f"command ({cmd}) failed with --->")
+        self.log("failing stdout: "+stdout_str)
+        self.log("failing stderr: "+stderr_str)
+        assert False, "_run_raw failed (see logs for error)"
+
     return stdout_str, stderr_str
 
 

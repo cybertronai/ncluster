@@ -115,7 +115,7 @@ class Task(backend.Task):
 
     tmux_window = self.tmux_session+':'+str(self.tmux_window_id)
     tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
-    self._run_raw(tmux_cmd)
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
     if non_blocking:
       return 0
 
@@ -221,9 +221,14 @@ class Task(backend.Task):
 
     return status
 
-  def _run_raw(self, cmd):
+  def _run_raw(self, cmd, ignore_errors=False):
     """Runs command directly, skipping tmux interface"""
-    os.system(cmd)
+    # TODO: capture stdout/stderr for feature parity with aws_backend
+    result = os.system(cmd)
+    if result != 0:
+      if ignore_errors:
+        self.log(f"command ({cmd}) failed.")
+        assert False, "_run_raw failed"
 
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it
