@@ -7,6 +7,7 @@ import sys
 import time
 from typing import List
 
+from ncluster import ncluster_globals
 from . import backend
 from . import util
 
@@ -343,6 +344,8 @@ class Task(backend.Task):
 def make_task(name='',
               run_name='',
               **kwargs) -> Task:
+  ncluster_globals.task_launched = True
+
   if not name:
     script_id = util.alphanumeric_hash(sys.argv[0])
     name = f"unnamedlocaltask-{script_id}"

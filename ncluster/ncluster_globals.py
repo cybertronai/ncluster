@@ -2,3 +2,4 @@
 # right now need for LOGDIR_ROOT because this value is used in backend.py
 # but is defined in backend.py descendants
 LOGDIR_ROOT = None
+task_launched = False  # keep track whether anything has been launched

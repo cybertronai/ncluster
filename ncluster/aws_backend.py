@@ -11,6 +11,7 @@ from typing import Union, Tuple, List
 import paramiko
 import pprint
 
+from ncluster import ncluster_globals
 from . import backend
 from . import aws_util as u
 from . import util
@@ -704,6 +705,8 @@ def make_task(
   Returns:
 
   """
+
+  ncluster_globals.task_launched = True
 
   assert not preemptible, "Not implemented"
 
