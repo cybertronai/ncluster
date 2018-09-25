@@ -11,5 +11,4 @@ python <somebenchmark.py>
 ```
 export NCLUSTER_INSTANCE=c5.18xlarge
 export NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE=1
-export NCLUSTER_NOKILL_TMUX=1
 ```
