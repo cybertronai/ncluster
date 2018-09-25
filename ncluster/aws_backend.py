@@ -21,6 +21,9 @@ AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation o
 NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region
 LOGDIR_ROOT = '/ncluster/runs'
 
+# some image which is fast to load, to use for quick runs
+GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
+
 
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
@@ -45,6 +48,9 @@ class Task(backend.Task):
       job: name of parent job
       **extra_kwargs: unused kwargs (kept for compatibility with other backends)
     """
+    self._cmd_fn = None
+    self._cmd = None
+    self._status_fn = None  # location of output of last status
     self._can_run = False  # indicates that things needed for .run were created
     self.initialize_called = False
 
@@ -135,7 +141,8 @@ tmux a
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
     if not int(os.environ.get("NCLUSTER_NOKILL_TMUX", "0")):
-      self._run_raw(f'tmux kill-session -t {self.tmux_session}', ignore_errors=True)
+      self._run_raw(f'tmux kill-session -t {self.tmux_session}',
+                    ignore_errors=True)
     else:
       print(
         "Warning, NCLUSTER_NOKILL_TMUX is on, make sure remote tmux prompt is available or things will hang")
@@ -176,13 +183,208 @@ tmux a
     #   time.sleep(TIMEOUT_SEC)
     #   self.run('sudo chmod 777 /ncluster')
 
-  def join(self):
-    while not self._is_initialized_fn_present():
-      self.log(
-        f"wait_until_ready: Not initialized, retrying in {u.RETRY_INTERVAL_SEC}")
-      time.sleep(u.RETRY_INTERVAL_SEC)
+    # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
+    # this would ensure that commands being sent are not being swallowed
 
-  # TODO: also chmod the file so that 755 files remain 755
+  def run(self, cmd, non_blocking=False, ignore_errors=False,
+          max_wait_sec=365 * 24 * 3600,
+          check_interval=0.2) -> int:
+
+    if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
+      # experimental version that captures output and prints it on failure
+      # redirection things break bash commands, so
+      # don't redirect on bash commands like source
+      # TODO(y): remove this, put in this filtering becase I thought it broke
+      # source activate, but now it seems it doesn't
+      if not util.is_bash_builtin(cmd) or True:
+        return self._run_with_output_on_failure(cmd, non_blocking,
+                                                ignore_errors,
+                                                max_wait_sec)
+      else:
+        self.log("Found bash built-in, using regular run")
+
+    if not self._can_run:
+      assert False, "Using .run before initialization finished"
+
+    if '\n' in cmd:
+      cmds = cmd.split('\n')
+      self.log(
+        f"Running {len(cmds)} commands at once, returning status of last")
+      status = -1
+      for subcmd in cmds:
+        status = self.run(subcmd)
+      return status
+
+    cmd = cmd.strip()
+    if cmd.startswith('#'):  # ignore empty/commented out lines
+      return -1
+    self.run_counter += 1
+    self.log("tmux> %s", cmd)
+
+    self._cmd = cmd
+    self._cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
+    self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+
+    cmd = util.shell_strip_comment(cmd)
+    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+
+    # modify command to dump shell success status into file
+    self.file_write(self._cmd_fn, cmd + '\n')
+    modified_cmd = f'{cmd}; echo $? > {self._status_fn}'
+    modified_cmd = shlex.quote(modified_cmd)
+
+    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
+    tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
+    if non_blocking:
+      return 0
+
+    if not self.wait_for_file(self._status_fn, max_wait_sec=30):
+      self.log(f"Retrying waiting for {self._status_fn}")
+    while not self.file_exists(self._status_fn):
+      self.log(f"Still waiting for {cmd}")
+      self.wait_for_file(self._status_fn, max_wait_sec=30)
+    contents = self.file_read(self._status_fn)
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+      contents = self.file_read(self._status_fn)
+    status = int(contents.strip())
+
+    if status != 0:
+      if not ignore_errors:
+        raise RuntimeError(f"Command {cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {cmd} returned status {status}")
+
+    return status
+
+  def join(self, ignore_errors=False):
+    """Waits until last executed command completed."""
+    assert self._status_fn, "Asked to join a task which hasn't had any commands executed on it"
+    check_interval = 0.2
+    status_fn = self._status_fn
+    if not self.wait_for_file(status_fn, max_wait_sec=30):
+      self.log(f"Retrying waiting for {status_fn}")
+    while not self.file_exists(status_fn):
+      self.log(f"Still waiting for {self._cmd}")
+      self.wait_for_file(status_fn, max_wait_sec=30)
+    contents = self.file_read(status_fn)
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+      contents = self.file_read(status_fn)
+    status = int(contents.strip())
+
+    if status != 0:
+      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
+      if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
+        self.log(
+          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+        self.log(f"\n{'*'*80}\nEnd failing output")
+      if not ignore_errors:
+        raise RuntimeError(f"Command {self._cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {self._cmd} returned status {status}")
+
+    return status
+
+  def _run_with_output_on_failure(self, cmd, non_blocking=False,
+                                  ignore_errors=False,
+                                  max_wait_sec=365 * 24 * 3600,
+                                  check_interval=0.2) -> int:
+    """Experimental version of run propagates error messages to client. The
+    downside is that nothing gets printed on console."""
+
+    if not self._can_run:
+      assert False, "Using .run before initialization finished"
+
+    if '\n' in cmd:
+      assert False, "Don't support multi-line for run2"
+
+    cmd = cmd.strip()
+    if cmd.startswith('#'):  # ignore empty/commented out lines
+      return -1
+    self.run_counter += 1
+    self.log("tmux> %s", cmd)
+
+    self._cmd = cmd
+    self._cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
+    self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+    self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
+
+    cmd = util.shell_strip_comment(cmd)
+    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+
+    # modify command to dump shell success status into file
+    self.file_write(self._cmd_fn, cmd + '\n')
+
+    #    modified_cmd = f'{cmd} > {out_fn} 2>&1; echo $? > {status_fn}'
+    # https://stackoverflow.com/a/692407/419116
+    # $cmd > >(tee -a fn) 2> >(tee -a fn >&2)
+
+    modified_cmd = f'{cmd} > >(tee -a {self._out_fn}) 2> >(tee -a {self._out_fn} >&2); echo $? > {self._status_fn}'
+    modified_cmd = shlex.quote(modified_cmd)
+
+    start_time = time.time()
+    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
+    tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
+    if non_blocking:
+      return 0
+
+    if not self.wait_for_file(self._status_fn, max_wait_sec=60):
+      self.log(f"Retrying waiting for {self._status_fn}")
+    elapsed_time = time.time() - start_time
+    while not self.file_exists(self._status_fn) and elapsed_time < max_wait_sec:
+      self.log(f"Still waiting for {cmd}")
+      self.wait_for_file(self._status_fn, max_wait_sec=60)
+      elapsed_time = time.time() - start_time
+    contents = self.file_read(self._status_fn)
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+      contents = self.file_read(self._status_fn)
+    status = int(contents.strip())
+
+    if status != 0:
+      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
+      self.log(
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+      self.log(f"\n{'*'*80}\nEnd failing output")
+      if not ignore_errors:
+        raise RuntimeError(f"Command {cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {cmd} returned status {status}")
+
+    return status
+
+  def _run_raw(self, cmd: str, ignore_errors=False) -> Tuple[str, str]:
+    """Runs given cmd in the task using current SSH session, returns
+    stdout/stderr as strings. Because it blocks until cmd is done, use it for
+    short cmds. Silently ignores failing commands.
+
+    This is a barebones method to be used during initialization that have
+    minimal dependencies (no tmux)
+    """
+    #    self._log("run_ssh: %s"%(cmd,))
+
+    stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command,
+                                                command=cmd, get_pty=True)
+    stdout_str = stdout.read().decode()
+    stderr_str = stderr.read().decode()
+    if stdout.channel.recv_exit_status() != 0:
+      if not ignore_errors:
+        self.log(f"command ({cmd}) failed with --->")
+        self.log("failing stdout: " + stdout_str)
+        self.log("failing stderr: " + stderr_str)
+        assert False, "_run_raw failed (see logs for error)"
+
+    return stdout_str, stderr_str
+
   def upload(self, local_fn: str, remote_fn: str = '',
              dont_overwrite: bool = False) -> None:
     """Uploads file to remote instance. If location not specified, dumps it
@@ -293,79 +495,6 @@ tmux a
     stdout, _stderr = self._run_raw('ls -ld ' + remote_fn)
     return stdout.startswith('d')
 
-  # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
-  # this would ensure that commands being sent are not being swallowed
-  def run(self, cmd, non_blocking=False, ignore_errors=False,
-          max_wait_sec=365 * 24 * 3600,
-          check_interval=0.2) -> int:
-
-    if os.environ.get('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE', ''):
-      # experimental version that captures output and prints it on failure
-      # redirection things break bash commands, so
-      # don't redirect on bash commands like source
-      if not util.is_bash_builtin(cmd):
-        return self._run_with_output_on_failure(cmd, non_blocking,
-                                                ignore_errors,
-                                                max_wait_sec)
-      else:
-        self.log("Found bash built-in, using regular run")
-
-    if not self._can_run:
-      assert False, "Using .run before initialization finished"
-
-    if '\n' in cmd:
-      cmds = cmd.split('\n')
-      self.log(
-        f"Running {len(cmds)} commands at once, returning status of last")
-      status = -1
-      for subcmd in cmds:
-        status = self.run(subcmd)
-      return status
-
-    cmd = cmd.strip()
-    if cmd.startswith('#'):  # ignore empty/commented out lines
-      return -1
-    self.run_counter += 1
-    self.log("tmux> %s", cmd)
-
-    cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
-    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
-
-    cmd = util.shell_strip_comment(cmd)
-    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
-
-    # modify command to dump shell success status into file
-    self.file_write(cmd_fn, cmd + '\n')
-    modified_cmd = f'{cmd}; echo $? > {status_fn}'
-    modified_cmd = shlex.quote(modified_cmd)
-
-    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
-    tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
-    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
-    if non_blocking:
-      return 0
-
-    if not self.wait_for_file(status_fn, max_wait_sec=30):
-      self.log(f"Retrying waiting for {status_fn}")
-    while not self.file_exists(status_fn):
-      self.log(f"Still waiting for {cmd}")
-      self.wait_for_file(status_fn, max_wait_sec=30)
-    contents = self.file_read(status_fn)
-
-    # if empty wait a bit to allow for race condition
-    if len(contents) == 0:
-      time.sleep(check_interval)
-      contents = self.file_read(status_fn)
-    status = int(contents.strip())
-
-    if status != 0:
-      if not ignore_errors:
-        raise RuntimeError(f"Command {cmd} returned status {status}")
-      else:
-        self.log(f"Warning: command {cmd} returned status {status}")
-
-    return status
-
   def switch_window(self, window_id: int):
     """
     Switches currently active tmux window for given task. 0 is the default window
@@ -381,103 +510,6 @@ tmux a
         self.tmux_available_window_ids.append(i)
 
     self.tmux_window_id = window_id
-
-  def _run_with_output_on_failure(self, cmd, non_blocking=False,
-                                  ignore_errors=False,
-                                  max_wait_sec=365 * 24 * 3600,
-                                  check_interval=0.2) -> int:
-    """Experimental version of run propagates error messages to client. The
-    downside is that nothing gets printed on console."""
-
-    if not self._can_run:
-      assert False, "Using .run before initialization finished"
-
-    if '\n' in cmd:
-      assert False, "Don't support multi-line for run2"
-
-    cmd = cmd.strip()
-    if cmd.startswith('#'):  # ignore empty/commented out lines
-      return -1
-    self.run_counter += 1
-    self.log("tmux> %s", cmd)
-
-    cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
-    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
-    out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
-
-    cmd = util.shell_strip_comment(cmd)
-    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
-
-    # modify command to dump shell success status into file
-    self.file_write(cmd_fn, cmd + '\n')
-
-    #    modified_cmd = f'{cmd} > {out_fn} 2>&1; echo $? > {status_fn}'
-    # https://stackoverflow.com/a/692407/419116
-    # $cmd > >(tee -a fn) 2> >(tee -a fn >&2)
-
-    modified_cmd = f'{cmd} > >(tee -a {out_fn}) 2> >(tee -a {out_fn} >&2); echo $? > {status_fn}'
-    modified_cmd = shlex.quote(modified_cmd)
-
-    start_time = time.time()
-    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
-    tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
-    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
-    if non_blocking:
-      return 0
-
-    if not self.wait_for_file(status_fn, max_wait_sec=60):
-      self.log(f"Retrying waiting for {status_fn}")
-    elapsed_time = time.time() - start_time
-    while not self.file_exists(status_fn) and elapsed_time < max_wait_sec:
-      self.log(f"Still waiting for {cmd}")
-      self.wait_for_file(status_fn, max_wait_sec=60)
-      elapsed_time = time.time() - start_time
-    contents = self.file_read(status_fn)
-
-    # if empty wait a bit to allow for race condition
-    if len(contents) == 0:
-      time.sleep(check_interval)
-      contents = self.file_read(status_fn)
-    status = int(contents.strip())
-
-    if status != 0:
-      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
-      self.log(
-        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(out_fn)}'")
-      self.log(f"\n{'*'*80}\nEnd failing output")
-      if not ignore_errors:
-        raise RuntimeError(f"Command {cmd} returned status {status}")
-      else:
-        self.log(f"Warning: command {cmd} returned status {status}")
-
-    return status
-
-  def _run_raw(self, cmd: str, ignore_errors=False) -> Tuple[str, str]:
-    """Runs given cmd in the task using current SSH session, returns
-    stdout/stderr as strings. Because it blocks until cmd is done, use it for
-    short cmds. Silently ignores failing commands.
-
-    This is a barebones method to be used during initialization that have
-    minimal dependencies (no tmux)
-    """
-    #    self._log("run_ssh: %s"%(cmd,))
-
-    # TODO(y), transition to SSHClient and assert fail on bad error codes
-    # https://stackoverflow.com/questions/3562403/how-can-you-get-the-ssh-return-code-using-paramiko
-    # sometimes fails with (1, 'Administratively prohibited'), possibly because of parallel connections
-    chan: paramiko.Channel = self.ssh_client.get_transport().open_session()
-    stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command,
-                                                command=cmd, get_pty=True)
-    stdout_str = stdout.read().decode()
-    stderr_str = stderr.read().decode()
-    if stdout.channel.recv_exit_status() != 0:
-      if not ignore_errors:
-        self.log(f"command ({cmd}) failed with --->")
-        self.log("failing stdout: "+stdout_str)
-        self.log("failing stderr: "+stderr_str)
-        assert False, "_run_raw failed (see logs for error)"
-
-    return stdout_str, stderr_str
 
 
 class Job(backend.Job):
@@ -702,6 +734,7 @@ def make_task(
   else:
     pass
 
+  # TODO: this creates incorrect placement group when recreating only 1 instance
   placement_group = ''
   if u.instance_supports_placement_groups(instance_type):
     placement_group = run_.aws_placement_group_name

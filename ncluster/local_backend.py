@@ -32,6 +32,12 @@ class Task(backend.Task):
 
   def __init__(self, name, tmux_session, *, install_script='', job=None,
                **kwargs):
+
+    self._cmd_fn = None
+    self._cmd = None
+    self._status_fn = None  # location of output of last status
+    self._out_fn = None
+
     self._can_run = False
     self.tmux_session = tmux_session
     self.tmux_window_id = 0
@@ -79,8 +85,9 @@ class Task(backend.Task):
 
   def run(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs) -> int:
 
-    if os.environ.get('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE', ''):
-      if not util.is_bash_builtin(cmd):
+    if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
+      # HACK
+      if not util.is_bash_builtin(cmd) or True:
         return self._run_with_output_on_failure(cmd, non_blocking, ignore_errors, **_kwargs)
       else:
         self.log("Found bash built-in, using regular run")
@@ -102,15 +109,16 @@ class Task(backend.Task):
     self.run_counter += 1
     self.log("tmux> %s", cmd)
 
-    cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
-    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
-    assert not os.path.exists(status_fn)
+    self._cmd = cmd
+    self._cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
+    self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+    assert not os.path.exists(self._status_fn)
 
     cmd = util.shell_strip_comment(cmd)
     # assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
-    self.file_write(cmd_fn, cmd + '\n')
-    modified_cmd = f'{cmd} ; echo $? > {status_fn}'
+    self.file_write(self._cmd_fn, cmd + '\n')
+    modified_cmd = f'{cmd} ; echo $? > {self._status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
     tmux_window = self.tmux_session+':'+str(self.tmux_window_id)
@@ -119,23 +127,54 @@ class Task(backend.Task):
     if non_blocking:
       return 0
 
-    if not self.wait_for_file(status_fn, max_wait_sec=60):
-      self.log(f"Retrying waiting for {status_fn}")
-    while not self.file_exists(status_fn):
+    if not self.wait_for_file(self._status_fn, max_wait_sec=60):
+      self.log(f"Retrying waiting for {self._status_fn}")
+    while not self.file_exists(self._status_fn):
       self.log(f"Still waiting for {cmd}")
-      self.wait_for_file(status_fn, max_wait_sec=60)
-    contents = self.file_read(status_fn)
+      self.wait_for_file(self._status_fn, max_wait_sec=60)
+    contents = self.file_read(self._status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(0.01)
-    status = int(open(status_fn).read().strip())
+    status = int(open(self._status_fn).read().strip())
 
     if status != 0:
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
         self.log(f"Warning: command {cmd} returned status {status}")
+
+    return status
+
+  def join(self, ignore_errors=False):
+    """Waits until last executed command completed."""
+    assert self._status_fn, "Asked to join a task which hasn't had any commands executed on it"
+    check_interval = 0.2
+    status_fn = self._status_fn
+    if not self.wait_for_file(status_fn, max_wait_sec=30):
+      self.log(f"Retrying waiting for {status_fn}")
+    while not self.file_exists(status_fn):
+      self.log(f"Still waiting for {self._cmd}")
+      self.wait_for_file(status_fn, max_wait_sec=30)
+    contents = self.file_read(status_fn)
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+      contents = self.file_read(status_fn)
+    status = int(contents.strip())
+
+    if status != 0:
+      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
+      if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
+        self.log(
+          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+        self.log(f"\n{'*'*80}\nEnd failing output")
+      if not ignore_errors:
+        raise RuntimeError(f"Command {self._cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {self._cmd} returned status {status}")
 
     return status
 
@@ -178,17 +217,18 @@ class Task(backend.Task):
     self.run_counter += 1
     self.log("tmux> %s", cmd)
 
-    cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
-    status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
-    out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
-    assert not os.path.exists(status_fn)
+    self._cmd = cmd
+    self._cmd_fn = f'{self.local_scratch}/{self.run_counter}.cmd'
+    self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+    self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
+    assert not os.path.exists(self._status_fn)
 
     cmd = util.shell_strip_comment(cmd)
     # assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
-    self.file_write(cmd_fn, cmd + '\n')
-    #  modified_cmd = f'{cmd} ; echo $? > {status_fn}'
-    modified_cmd = f'{cmd} > >(tee -a {out_fn}) 2> >(tee -a {out_fn} >&2); echo $? > {status_fn}'
+    self.file_write(self._cmd_fn, cmd + '\n')
+    #  modified_cmd = f'{cmd} ; echo $? > {self._status_fn}'
+    modified_cmd = f'{cmd} > >(tee -a {self._out_fn}) 2> >(tee -a {self._out_fn} >&2); echo $? > {self._status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
     tmux_window = self.tmux_session+':'+str(self.tmux_window_id)
@@ -197,22 +237,22 @@ class Task(backend.Task):
     if non_blocking:
       return 0
 
-    if not self.wait_for_file(status_fn, max_wait_sec=60):
-      self.log(f"Retrying waiting for {status_fn}")
-    while not self.file_exists(status_fn):
+    if not self.wait_for_file(self._status_fn, max_wait_sec=60):
+      self.log(f"Retrying waiting for {self._status_fn}")
+    while not self.file_exists(self._status_fn):
       self.log(f"Still waiting for {cmd}")
-      self.wait_for_file(status_fn, max_wait_sec=60)
-    contents = self.file_read(status_fn)
+      self.wait_for_file(self._status_fn, max_wait_sec=60)
+    contents = self.file_read(self._status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(0.01)
-    status = int(open(status_fn).read().strip())
+    status = int(open(self._status_fn).read().strip())
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
       self.log(
-        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(out_fn)}'")
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
       self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")

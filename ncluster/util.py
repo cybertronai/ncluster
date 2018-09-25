@@ -1,7 +1,11 @@
-# Various helper utilities used internally by ncluster project
+"""
+Various helper utilities used internally by ncluster project
+"""
 
+import os
 import random
 import string
+import sys
 import time
 from collections import Iterable
 import shlex
@@ -137,3 +141,17 @@ def is_bash_builtin(cmd):
   if toks and toks[0] in bash_builtins:
     return True
   return False
+
+
+def is_set(name):
+  """Helper method to check if given property is set"""
+  val = os.environ.get(name, '0')
+  assert val == '0' or val == '1', f"env var {name} has value {val}, expected 0 or 1"
+  return val == '1'
+
+
+def assert_script_in_current_directory():
+  """Assert fail if current directory is different from location of the script"""
+
+  script = sys.argv[0]
+  assert os.path.abspath(os.path.dirname(script)) == os.path.abspath('.'), f"Change into directory of script {script} and run again."
