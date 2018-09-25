@@ -2,6 +2,8 @@
 """
 Runs distributed benchmark on a single machine remotely
 
+Adding 100MB buffers
+
 # 1 shard: 88ms
 # 4 shards: 56ms
 # 8 shards: 51ms
@@ -62,10 +64,14 @@ def _launch_server(role):
 
 def run_launcher():
   import ncluster
+  ncluster.util.assert_script_in_current_directory()
+  
   if args.aws:
     ncluster.set_backend('aws')
 
-  worker = ncluster.make_task(args.name, image_name=args.image)
+  # use 4GB instance, 0.5GB not enough
+  worker = ncluster.make_task(args.name, image_name=args.image,
+                              instance_type='t3.medium')
   worker.upload(__file__)
   worker.upload('util.py')
 
@@ -138,7 +144,7 @@ def run_sender():
 
 
 def main():
-  # run local benchmark in launcher and launch service
+  # run local benchmark in launcher and launch service  
   if args.role == "launcher":
     run_launcher()
   elif args.role == "sender":
