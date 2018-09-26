@@ -131,7 +131,7 @@ def run_launcher():
   
   job.upload(__file__)
   job.upload('util.py')
-  job.run('pip install ray')
+  job.run('pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-manylinux1_x86_64.whl')
   if args.xray:
     job.run('export RAY_USE_XRAY=1')
   job.run('ray stop')
