@@ -4,10 +4,10 @@
 # server on a different machine
 #
 # Run locally:
-# ./raw_two_machines.py
+# ./ray_two_machines.py
 #
 # Run on AWS:
-# ./raw_two_machines.py --aws
+# ./ray_two_machines.py --aws
 
 
 # Example timings
