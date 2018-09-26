@@ -14,5 +14,5 @@ elif sys.argv[1] == 'worker':
   ones = tf.ones((1000,1000))
   result = sess.run(tf.matmul(ones, ones))
   print(f"matmul gave {result.sum()}")
-  os.system('sudo shutdown -h -P 10')  # shut down instead in 10 mins
+  os.system('sudo shutdown -h -P 10')  # shut down the instance in 10 mins
 
