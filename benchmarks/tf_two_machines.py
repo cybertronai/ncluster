@@ -32,16 +32,22 @@ Should see something like this with t3.large instances
 ```
 
 Running c5.18xlarge machines with more iterations
-1987/2000 added 100 MBs in 109.2 ms: 916.15 MB/second
-1988/2000 added 100 MBs in 109.5 ms: 913.07 MB/second
-1989/2000 added 100 MBs in 111.1 ms: 900.48 MB/second
-1990/2000 added 100 MBs in 109.4 ms: 913.73 MB/second
-1991/2000 added 100 MBs in 122.4 ms: 816.97 MB/second
-1992/2000 added 100 MBs in 123.5 ms: 809.73 MB/second
-1993/2000 added 100 MBs in 122.2 ms: 818.63 MB/second
-1994/2000 added 100 MBs in 111.2 ms: 899.45 MB/second
-1995/2000 added 100 MBs in 110.1 ms: 908.59 MB/second
-1996/2000 added 100 MBs in 109.9 ms: 910.03 MB/second
+007/11 sent 100 MBs in 135.4 ms: 738.47 MB/second
+008/11 sent 100 MBs in 133.0 ms: 752.04 MB/second
+009/11 sent 100 MBs in 133.8 ms: 747.48 MB/second
+010/11 sent 100 MBs in 136.3 ms: 733.77 MB/second
+min:   132.97, median:   134.98, mean:   137.27
+
+
+Can use more shards
+./tf_two_machines.py --aws --shards=8 --iters=1000
+995/1000 sent 100 MBs in 87.0 ms: 1149.21 MB/second
+996/1000 sent 100 MBs in 86.8 ms: 1152.11 MB/second
+997/1000 sent 100 MBs in 89.8 ms: 1113.89 MB/second
+998/1000 sent 100 MBs in 87.9 ms: 1137.37 MB/second
+999/1000 sent 100 MBs in 88.0 ms: 1135.80 MB/second
+min:    86.12, median:    88.48, mean:    89.51
+
 
 To connect and interact with the job look for SSH instructions like this
    To connect to 0.tf_two_machines
@@ -106,8 +112,8 @@ def run_launcher():
   sender, receiver = job.tasks
   # kill python just for when tmux session reuse is on
   if not ncluster.running_locally():
-    sender._run_raw('killall python')
-    receiver._run_raw('killall python')
+    sender._run_raw('killall python', ignore_errors=True)
+    receiver._run_raw('killall python', ignore_errors=True)
 
   if ncluster.get_backend() == 'aws':
     # on AWS probably running in conda DLAMI, switch into TF-enabled env

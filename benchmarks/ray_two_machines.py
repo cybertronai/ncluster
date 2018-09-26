@@ -16,6 +16,31 @@
 # c5.18xlarge locally: 86 ms, 1218 MB/seconds (9.7 Gbps)
 # macbook pro locally: 978.9 ms, 102.15 MB/second
 
+# c5.18xlarge
+# 004/11 sent 100 MBs in 69.4 ms: 1440.31 MB/second
+# 005/11 sent 100 MBs in 68.1 ms: 1468.95 MB/second
+# 006/11 sent 100 MBs in 70.4 ms: 1421.40 MB/second
+# 007/11 sent 100 MBs in 69.5 ms: 1438.62 MB/second
+# 008/11 sent 100 MBs in 66.4 ms: 1506.90 MB/second
+# 009/11 sent 100 MBs in 76.5 ms: 1306.92 MB/second
+# 010/11 sent 100 MBs in 66.8 ms: 1497.64 MB/second
+# min:    66.36, median:    69.43, mean:    70.55
+
+# Another run
+# 989/1000 sent 100 MBs in 54.6 ms: 1831.07 MB/second
+# 990/1000 sent 100 MBs in 54.4 ms: 1837.20 MB/second
+# 991/1000 sent 100 MBs in 54.8 ms: 1824.91 MB/second
+# 992/1000 sent 100 MBs in 53.4 ms: 1874.39 MB/second
+# 993/1000 sent 100 MBs in 53.1 ms: 1881.77 MB/second
+# 994/1000 sent 100 MBs in 52.7 ms: 1897.76 MB/second
+# 995/1000 sent 100 MBs in 55.4 ms: 1805.42 MB/second
+# 996/1000 sent 100 MBs in 53.4 ms: 1872.93 MB/second
+# 997/1000 sent 100 MBs in 52.7 ms: 1896.65 MB/second
+# 998/1000 sent 100 MBs in 54.0 ms: 1851.14 MB/second
+# 999/1000 sent 100 MBs in 53.6 ms: 1864.93 MB/second
+# min:    51.11, median:    55.45, mean:    60.74
+
+
 # Bottom line: 30ms locally, 60ms over network
 
 import argparse
@@ -106,6 +131,7 @@ def run_launcher():
   
   job.upload(__file__)
   job.upload('util.py')
+  job.run('pip install ray')
   if args.xray:
     job.run('export RAY_USE_XRAY=1')
   job.run('ray stop')
