@@ -77,47 +77,6 @@ class Task:
       return self.job.tasks.index(self) == 0 and self.job.is_chief()
 
   # TODO: this should be marked private
-  def setup_logdir(self):
-    """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
-    """
-    assert self.job.run_.name
-
-    if not self.is_chief():
-      return
-    if self.job.run_.logdir_:
-      return  # already created logdir
-
-    self.log("Creating logdir")
-
-    # logdir root can differ between backends, hence get it from the actual backend being used
-    logdir_root = ncluster_globals.LOGDIR_ROOT
-    assert logdir_root
-
-    self.run(f'mkdir -p {logdir_root}')
-    find_command = f'find {logdir_root} -maxdepth 1 -type d'
-
-    stdout, stderr = self.run_with_output(find_command)
-    logdir = f"{logdir_root}/{self.run_name}"
-
-    # TODO, simplify this logic, just get the largest logdir encountered, then do +1
-    counter = 0
-    while logdir in stdout:
-      counter += 1
-      lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
-      self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
-      logdir = lll
-
-    # fix permission for all parent directories.
-    # EFS may be shared among various users (ie ubuntu and ec2-user), so make
-    # sure all parent dirs are world-writeable
-    fragments = logdir.split('/')[1:]
-    root = ''
-    for fragment in fragments:
-      root = root + '/' + fragment
-      self.run('sudo chmod 777 ' + root, ignore_errors=True)
-
-    self.run(f'mkdir -p {logdir}')
-    self.job.run_.logdir_ = logdir
 
   def run(self, cmd: str, non_blocking=False, ignore_errors=False):
     """Runs command on given task."""
@@ -308,83 +267,36 @@ class Run:
   event files.
   :ivar aws_placement_group_name: somedoc
   """
-  aws_placement_group_name: str  # This is unique name used to place all tasks in the run together
   jobs: List[Job]
-
-  def __init__(self, name='', jobs=None, **kwargs):
-    """Creates a run. If install_script is specified, it's used as default
-    install_script for all jobs (can be overridden by Job constructor)"""
-
-    util.log(f"Creating run '{name}'")
-    if not name:
-      # use directory/filename for run name
-      main_script = os.path.abspath(sys.argv[0])
-      if main_script.find('/') == 1:
-        main_script = 'asdf/' + main_script
-      filename = '.'.join(main_script.rsplit('/', 2)[-2:])
-      name = f'unnamedrun-{filename}'
-
-    if jobs is None:
-      jobs = []
-    self.name = name
-    self.jobs = jobs
-    self.kwargs = kwargs
-
-    self.logdir_ = None
-    util.log(f"Choosing placement_group for run {name}")
-    self.aws_placement_group_name = name + '-' + util.random_id()
-
-    # TODO: this back-linking logic may be unneeded
-    for job in jobs:
-      job.run_ = self
 
   @property
   def logdir(self):
-    assert self.jobs
-    return self.jobs[0].logdir
-
-  def make_job(self, name='', **kwargs):
-    return Job(name, self, **kwargs)
+    raise NotImplementedError()
 
   # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
   def run(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-
-    for job in self.jobs:
-      job.run(*args, **kwargs)
+    raise NotImplementedError()
 
   def run_with_output(self, *args, **kwargs):
-    """Runs command on every first job in the run, returns stdout."""
-    for job in self.jobs:
-      job.run_with_output(*args, **kwargs)
+    raise NotImplementedError()
 
   def _run_raw(self, *args, **kwargs):
-    """_run_raw on every job in the run."""
-
-    for job in self.jobs:
-      job._run_raw(*args, **kwargs)
+    raise NotImplementedError()
 
   def upload(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-    for job in self.jobs:
-      job.upload(*args, **kwargs)
+    raise NotImplementedError()
 
-  # def log(self, message, *args):
-  #   """Log to client console."""
-  #   ts = _current_timestamp()
-  #   if args:
-  #     message = message % args
-  #
-  #   print("%s %s: %s" % (ts, self.name, message))
+  def make_job(self, name='', **kwargs):
+    raise NotImplementedError()
 
 
-def make_task(**_kwargs) -> Task:
+def make_task(**_kwargs):
   raise NotImplementedError()
 
 
-def make_job(**_kwargs) -> Job:
+def make_job(**_kwargs):
   raise NotImplementedError()
 
 
-def make_run(**_kwargs) -> Run:
+def make_run(**_kwargs):
   raise NotImplementedError()

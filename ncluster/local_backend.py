@@ -340,18 +340,113 @@ class Task(backend.Task):
   #   for line in iter(p.stdout.readline, ''):
   #     sys.stdout.write(line.decode('ascii', errors='ignore'))
 
+  def setup_logdir(self):
+    """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
+    """
+    assert self.job.run_.name
+
+    if not self.is_chief():
+      return
+    if self.job.run_.logdir_:
+      return  # already created logdir
+
+    self.log("Creating logdir")
+
+    # logdir root can differ between backends, hence get it from the actual backend being used
+    logdir_root = ncluster_globals.LOGDIR_ROOT
+    assert logdir_root
+
+    self.run(f'mkdir -p {logdir_root}')
+    find_command = f'find {logdir_root} -maxdepth 1 -type d'
+
+    stdout, stderr = self.run_with_output(find_command)
+    logdir = f"{logdir_root}/{self.run_name}"
+
+    # TODO, simplify this logic, just get the largest logdir encountered, then do +1
+    counter = 0
+    while logdir in stdout:
+      counter += 1
+      lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
+      self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
+      logdir = lll
+    self.run(f'mkdir -p {logdir}')
+
+
+class Job(backend.Job):
+  pass
+
+
+class Run:
+  """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
+  server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
+  event files.
+  :ivar aws_placement_group_name: somedoc
+  """
+  jobs: List[Job]
+
+  def __init__(self, name='', jobs=[], **kwargs):
+    """Creates a run. If install_script is specified, it's used as default
+    install_script for all jobs (can be overridden by Job constructor)"""
+
+    assert name, "Must specify name for current run"
+
+    self.name = name
+    self.jobs = jobs
+    self.kwargs = kwargs
+    self.logdir_ = None
+    util.log(f"Choosing placement_group for run {name}")
+    self.aws_placement_group_name = name + '-' + util.random_id()
+
+  @property
+  def logdir(self):
+    assert self.jobs
+    return self.jobs[0].logdir
+
+  # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
+  def run(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+
+    for job in self.jobs:
+      job.run(*args, **kwargs)
+
+  def run_with_output(self, *args, **kwargs):
+    """Runs command on every first job in the run, returns stdout."""
+    for job in self.jobs:
+      job.run_with_output(*args, **kwargs)
+
+  def _run_raw(self, *args, **kwargs):
+    """_run_raw on every job in the run."""
+    for job in self.jobs:
+      job._run_raw(*args, **kwargs)
+
+  def upload(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+    for job in self.jobs:
+      job.upload(*args, **kwargs)
+
+  def make_job(self, name='', **kwargs):
+    return make_job(name, run_=self, **kwargs)
+
 
 def make_task(name='',
               run_name='',
+              run_=None,
               **kwargs) -> Task:
+  """Create task, also create dummy run if not specified."""
   ncluster_globals.task_launched = True
 
   if not name:
     script_id = util.alphanumeric_hash(sys.argv[0])
     name = f"unnamedlocaltask-{script_id}"
 
+  if run_ and run_name:
+    assert run_.name == run_name, f"Got run_.name {run_.name} but run_name {run_name}"
+  elif run_:
+    run_name = run_.name
+
   if not run_name:
     run_name = f'unnamedrun-{name}'
+    dummy_run = Run(run_name)
 
   # tmux can't use . for session names
   tmux_session = name.replace('.', '=')
@@ -360,17 +455,14 @@ def make_task(name='',
   os.system(f'tmux kill-session -t {tmux_session}')
   os.system(f'tmux new-session -s {tmux_session} -n {tmux_window_id} -d')
 
-  dummy_run = backend.Run(run_name)
-  dummy_job = dummy_run.make_job()
-  task = Task(name, job=dummy_job,
+  task = Task(name, job=None,
               tmux_session=tmux_session,  # propagate optional args
               **kwargs)
-  dummy_job.tasks.append(task)
   return task
 
 
 def make_job(name=None,
-             num_tasks=0,
+             num_tasks=1,
              run_name=None,
              run_=None,
              install_script='',
@@ -378,21 +470,22 @@ def make_job(name=None,
              ) -> backend.Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
+  if run_ is None:
+    run_ = Run(run_name)
+
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
   tasks = [make_task(f"{i}.{name}",
                      run_name=run_name,
+                     run_=run_,
                      install_script=install_script,
                      **kwargs
                      ) for i in range(num_tasks)]
-
-  if run_ is None:
-    run_ = backend.Run(run_name)
 
   job = backend.Job(name=name, run_=run_, tasks=tasks, **kwargs)
   run_.jobs.append(job)
   return job
 
 
-def make_run(name) -> backend.Run:
-  return backend.Run(name)
+def make_run(name) -> Run:
+  return Run(name)

@@ -22,6 +22,8 @@ def set_backend(backend_name: str):
   """Sets backend (local or aws)"""
   global _backend, _backend_name
   _backend_name = backend_name
+
+  assert not ncluster_globals.task_launched, "Not allowed to change backend after launching a task (this pattern is error-prone)"
   if backend_name == 'aws':
     _backend = aws_backend
   elif backend_name == 'local':

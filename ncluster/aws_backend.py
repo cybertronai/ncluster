@@ -191,6 +191,7 @@ tmux a
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2) -> int:
 
+    # TODO(y): make _run_with_output_on_failure default, and delete this
     if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
       # experimental version that captures output and prints it on failure
       # redirection things break bash commands, so
@@ -512,11 +513,108 @@ tmux a
 
     self.tmux_window_id = window_id
 
+  def setup_logdir(self):
+    """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
+    """
+    assert self.job.run_.name
+
+    if not self.is_chief():
+      return
+    if self.job.run_.logdir_:
+      return  # already created logdir
+
+    self.log("Creating logdir")
+
+    # logdir root can differ between backends, hence get it from the actual backend being used
+    logdir_root = ncluster_globals.LOGDIR_ROOT
+    assert logdir_root
+
+    self.run(f'mkdir -p {logdir_root}')
+    find_command = f'find {logdir_root} -maxdepth 1 -type d'
+
+    stdout, stderr = self.run_with_output(find_command)
+    logdir = f"{logdir_root}/{self.run_name}"
+
+    # TODO, simplify this logic, just get the largest logdir encountered, then do +1
+    counter = 0
+    while logdir in stdout:
+      counter += 1
+      lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
+      self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
+      logdir = lll
+
+
+    # fix permission for all parent directories.
+    # EFS may be shared among various users (ie ubuntu and ec2-user), so make
+    # sure all parent dirs are world-writeable
+    fragments = logdir_root.split('/')[1:]
+    root = ''
+    for fragment in fragments:
+      root = root + '/' + fragment
+      self.run('sudo chmod 777 ' + root, ignore_errors=True)
+
+    self.run(f'mkdir -p {logdir}')
+    self.job.run_.logdir_ = logdir
+
 
 class Job(backend.Job):
   pass
 
 
+class Run:
+  """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
+  server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
+  event files.
+  :ivar aws_placement_group_name: somedoc
+  """
+  jobs: List[Job]
+
+  def __init__(self, name='', jobs=None, **kwargs):
+    """Creates a run. If install_script is specified, it's used as default
+    install_script for all jobs (can be overridden by Job constructor)"""
+
+    assert name, "Must specify name for current run"
+
+    jobs = []
+    self.name = name
+    self.jobs = jobs
+    self.kwargs = kwargs
+    self.logdir_ = None
+    util.log(f"Choosing placement_group for run {name}")
+    self.aws_placement_group_name = name + '-' + util.random_id()
+
+  @property
+  def logdir(self):
+    assert self.jobs
+    return self.jobs[0].logdir
+
+  # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
+  def run(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+
+    for job in self.jobs:
+      job.run(*args, **kwargs)
+
+  def run_with_output(self, *args, **kwargs):
+    """Runs command on every first job in the run, returns stdout."""
+    for job in self.jobs:
+      job.run_with_output(*args, **kwargs)
+
+  def _run_raw(self, *args, **kwargs):
+    """_run_raw on every job in the run."""
+    for job in self.jobs:
+      job._run_raw(*args, **kwargs)
+
+  def upload(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+    for job in self.jobs:
+      job.upload(*args, **kwargs)
+
+  def make_job(self, name='', **kwargs):
+    return make_job(name, run_=self, **kwargs)
+
+
+# TODO: this method and a few others are backend specific, document in API doc
 def maybe_start_instance(instance):
   """Starts instance if it's stopped, no-op otherwise."""
 
@@ -679,7 +777,7 @@ def make_task(
         image_name: str = '',
         disk_size: int = 0,
         preemptible: Union[None, bool] = None,
-        job: Job = None,
+        run_: Run = None,
         task: backend.Task = None,
         create_resources=True,
 ) -> Task:
@@ -693,7 +791,7 @@ def make_task(
   Args:
     disk_size: default size of root disk, in GBs
     create_resources: whether this task will handle resource creation
-    job: parent job
+    run_: parent run
     name: see ncluster.make_task
     run_name: see ncluster.make_task
     install_script: see ncluster.make_task
@@ -719,13 +817,11 @@ def make_task(
   # if name not specified, use name which is the same across script invocations for given image/instance-type
   name = maybe_create_name(name, instance_type, image_name)
   run_name = maybe_create_run_name(run_name, name)
-  if run_name and job:
-    assert run_name == job.run_.name, "Provided Run object and run_name, but run_.name is {run_.name} while run_name is {run_name}"
+  if run_name and run_:
+    assert run_name == run_.name, "Provided Run object and run_name, but run_.name is {run_.name} while run_name is {run_name}"
 
-  if job is None:
-    run_: backend.Run = backend.Run(run_name)
-  else:
-    run_ = job.run_
+  if run_ is None:
+    run_: Run = Run(run_name)
 
   if not instance_type:
     instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
@@ -844,25 +940,17 @@ def make_task(
               install_script=install_script,
               image_name=image_name,
               instance_type=instance_type)
-
-  # have internal task/job/run hierarchy, in case of single task
-  # manually initialize it
-  if job is None:
-    job = Job(name=name, run_=run_, tasks=[task])
-
-  run_.jobs.append(job)
-
   return task
 
 
 def make_job(
         name: str = '',
         run_name: str = '',
-        num_tasks: int = 0,
+        num_tasks: int = 1,
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
-        run_: backend.Run = None,
+        run_: Run = None,
         create_resources=True,
         **kwargs) -> Job:
   """
@@ -898,7 +986,7 @@ def make_job(
   run_name = maybe_create_run_name(run_name, name)
 
   if run_ is None:
-    run_ = backend.Run(run_name)
+    run_ = Run(run_name)
   job = Job(name=name, tasks=tasks, run_=run_, **kwargs)
 
   exceptions = []
@@ -909,7 +997,7 @@ def make_job(
       tasks[i] = make_task(f"{i}.{name}", run_name=run_name,
                            install_script=install_script,
                            instance_type=instance_type, image_name=image_name,
-                           job=job,
+                           run_=run_,
                            task=tasks[i],
                            create_resources=False,
                            # handle resources in job already
@@ -946,6 +1034,10 @@ def make_job(
       f"Got instance spread over multiple placement groups: {placement_dict}. Must terminate all instances in run {run_name} and try again.")
   run_.jobs.append(job)
   return job
+
+
+def make_run(name) -> Run:
+  return Run(name)
 
 # def make_run(name, **kwargs):
 #  return Run(name, **kwargs)
