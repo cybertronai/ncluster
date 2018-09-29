@@ -1,4 +1,12 @@
 tf_two_machines -- 500 on t3, 910 on c3
 
+Ray can do
 30ms on local transfers, 60ms on AWS c5.18xlarge
-Using multiple ps shards, can do 48ms
+Using multiple ps shards, can do 48ms on AWS
+
+
+40ms on unoptimized PyTorch clone
+2.7ms for optimized memcpy on skylake: 300 Gbps (37 GB/second, close to memory bandwidth) -- https://www.google.com/url?q=https://www.anandtech.com/show/11544/intel-skylake-ep-vs-amd-epyc-7000-cpu-battle-of-the-decade/12&source=gmail&ust=1537921524487000&usg=AFQjCNGUrAScjR_rAihauUr-nj5TMg-VKQ
+
+
+PyTorch backend can do 20 Gbps per thread on 

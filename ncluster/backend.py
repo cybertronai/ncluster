@@ -1,13 +1,15 @@
-"""Interface for job launching backend."""
+"""Interface for job launching backend.
+
+Run/Job and Task are container classes encapsulating functionality.
+User creates them through make_run/make_job/make_task methods
+
+"""
 # Job launcher Python API: https://docs.google.com/document/d/1yTkb4IPJXOUaEWksQPCH7q0sjqHgBf3f70cWzfoFboc/edit
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
-import os
-import sys
 import threading
 import time
 from typing import List, Tuple, Any
 
-from . import ncluster_globals
 from . import util
 
 # aws_backend.py
@@ -49,6 +51,7 @@ class Task:
 
   def __init__(self, name=''):
     """Wraps execution resources into a task. Runs install_script if present"""
+    self.last_status = None
     self.name = name
     self.instance = None
     self.install_script = None
@@ -60,29 +63,14 @@ class Task:
 
   @property
   def logdir(self):
-    self.setup_logdir()  # creates logdir if necessary, stores it in associated run_.logdir_
-    return self.job.run_.logdir_
-
-  @property
-  def run_name(self):
-    return self.job.run_.name
-
-  def is_chief(self):
-    """Tests whether this task is 'chief', in other words, in charge of creating shared tasks for this
-    run, such as creating logging directory."""
-
-    if not self.job:  # standalone task, always chief
-      return True
-    else:  # only first task in first job is chielf
-      return self.job.tasks.index(self) == 0 and self.job.is_chief()
-
-  # TODO: this should be marked private
+    raise NotImplementedError()
 
   def run(self, cmd: str, non_blocking=False, ignore_errors=False):
     """Runs command on given task."""
     raise NotImplementedError()
 
-  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> Tuple[str, str]:
+  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> \
+          Tuple[str, str]:
     """
 
     Args:
@@ -108,10 +96,10 @@ class Task:
 
     assert not non_blocking, "Getting output doesn't work with non_blocking"
     status = self.run(cmd2, False, ignore_errors=True)
-    stdout = self.file_read(stdout_fn)
-    stderr = self.file_read(stderr_fn)
+    stdout = self.read(stdout_fn)
+    stderr = self.read(stderr_fn)
 
-    if status > 0:
+    if self.last_status > 0:
       self.log(f"Warning: command '{cmd}' returned {status},"
                f" stdout was '{stdout}' stderr was '{stderr}'")
       if not ignore_errors:
@@ -137,7 +125,7 @@ class Task:
       if time.time() - start_time > max_wait_sec:
         util.log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
         return False
-      if not self.file_exists(fn):
+      if not self.exists(fn):
         time.sleep(check_interval)
         continue
       else:
@@ -164,15 +152,15 @@ class Task:
     """Downloads remote file to current directory."""
     raise NotImplementedError()
 
-  def file_write(self, fn, contents):
+  def write(self, fn, contents):
     """Write string contents to file fn in task."""
     raise NotImplementedError()
 
-  def file_read(self, fn):
+  def read(self, fn):
     """Read contents of file and return it as string."""
     raise NotImplementedError()
 
-  def file_exists(self, fn) -> bool:
+  def exists(self, fn) -> bool:
     """Checks if fn exists on task
 
     Args:
@@ -196,12 +184,11 @@ class Job:
 
   #  run_: Run
 
-  def __init__(self, name: str, run_, tasks: List[Task] = None, **kwargs):
+  def __init__(self, name: str, tasks: List[Task] = None, **kwargs):
     """Initializes Job object, links tasks to refer back to the Job."""
     if tasks is None:
       tasks = []
     self.name = name
-    self.run_ = run_
     self.tasks = tasks
     self.kwargs = kwargs
     # TODO: maybe backlinking is not needed
@@ -211,12 +198,6 @@ class Job:
   @property
   def logdir(self):
     return self.tasks[0].logdir
-
-  def is_chief(self):
-    """Return true if this task is first task in the Run"""
-    if not self.run_:  # standalone Job
-      return True
-    return self.run_.jobs.index(self) == 0
 
   def _non_blocking_wrapper(self, method, *args, **kwargs):
     """Runs given method on every task in the job. Blocks until all tasks finish. Propagates exception from first
@@ -254,13 +235,14 @@ class Job:
     """See :py:func:`backend.Task.upload`"""
     return self._non_blocking_wrapper("upload", *args, **kwargs)
 
-  def file_write(self, *args, **kwargs):
-    return self._non_blocking_wrapper("file_write", *args, **kwargs)
+  def write(self, *args, **kwargs):
+    return self._non_blocking_wrapper("write", *args, **kwargs)
 
   def _run_raw(self, *args, **kwargs):
     return self._non_blocking_wrapper("_run_raw", *args, **kwargs)
 
 
+# Implementation needs to be backend specific so that run.create_job calls backend-specific method
 class Run:
   """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
   server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and

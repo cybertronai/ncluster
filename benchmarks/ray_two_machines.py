@@ -58,7 +58,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--role", default='launcher', type=str,
                     help="launcher/driver")
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 parser.add_argument("--size-mb", default=100, type=int,
                     help='how much data to send at each iteration')
 parser.add_argument("--iters", default=11, type=int)
@@ -113,8 +113,10 @@ def run_launcher():
 
   if args.nightly:
     # running locally MacOS
+    print(f"asdfasdf {util.ossystem('uname')}")
     if 'Darwin' in util.ossystem('uname') and not args.aws:
       install_script = 'pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-macosx_10_6_intel.whl'
+      print(f"asdfasdf got install script {install_script}")
     else:
       install_script = 'pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-manylinux1_x86_64.whl'
   else:
@@ -131,7 +133,6 @@ def run_launcher():
   
   job.upload(__file__)
   job.upload('util.py')
-  job.run('pip install -U https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-0.5.2-cp36-cp36m-manylinux1_x86_64.whl')
   if args.xray:
     job.run('export RAY_USE_XRAY=1')
   job.run('ray stop')
@@ -144,7 +145,7 @@ def run_launcher():
   worker.run(f"ray start --redis-address={ps.ip}:6379 {worker_resource}")
   worker.run(
     f'./{__file__} --role=driver --ip={ps.ip}:6379 --size-mb={args.size_mb} --iters={args.iters}')
-  print(worker.file_read('out'))
+  print(worker.read('out'))
 
 
 def run_driver():

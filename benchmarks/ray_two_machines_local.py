@@ -21,7 +21,7 @@ import util
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 parser.add_argument("--size-mb", default=100, type=int,
                     help='how much data to send at each iteration')
 parser.add_argument("--iters", default=11, type=int)
@@ -102,7 +102,7 @@ def run_launcher():
   #  worker.run(f"ray start --redis-address={worker.ip}:6379 {resources}")
   worker.run(
     f'./{__file__} --role=driver --ip={worker.ip}:6379 --size-mb={args.size_mb} --iters={args.iters}')
-  print(worker.file_read('out'))
+  print(worker.read('out'))
 
 
 def run_driver():

@@ -1,9 +1,6 @@
 import ncluster
 import time
 
-# TODO: pdb_handler should run by default
-#   ncluster.aws_util.install_pdb_handler()
-
 def main():
   ncluster.set_backend('local')
 

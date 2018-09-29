@@ -255,7 +255,7 @@ def keypair_setup():
 
 
 def placement_group_setup(group_name):
-  """Creates placement group if necessary. Returns True if new placement
+  """Creates placement_group group if necessary. Returns True if new placement_group
   group was created, False otherwise."""
 
   existing_placement_groups = u.get_placement_group_dict()

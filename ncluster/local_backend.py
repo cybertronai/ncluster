@@ -1,9 +1,12 @@
-# Local implementation of backend.py using separate tmux sessions for jobs
+"""Local implementation of backend.py using separate tmux sessions for jobs.
+
+Not thread-safe.
+"""
+
 import glob
 import os
 import shlex
 import socket
-import sys
 import time
 from typing import List
 
@@ -17,9 +20,6 @@ LOGDIR_ROOT = os.environ[
                 'HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
 
 
-# TODO: use separate session for each task, for parity with AWS job launcher
-
-
 # todo: tmux session names are backwards from AWS job names (runname-jobname)
 # TODO: add kwargs so that tmux backend can be drop-in replacement
 
@@ -31,7 +31,7 @@ class Task(backend.Task):
   tmux_window_id: int
   tmux_available_window_ids: List[int]
 
-  def __init__(self, name, tmux_session, *, install_script='', job=None,
+  def __init__(self, name, *, tmux_session, install_script='', job=None,
                **kwargs):
 
     self._cmd_fn = None
@@ -60,11 +60,11 @@ class Task(backend.Task):
 
     # task current dir
     print('name is', name)
-    tmpdir = f"{util.reverse_taskname(name)}.{os.getpid()}.{util.now_micros()}"
-    self.taskdir = f"{TASKDIR_ROOT}/{tmpdir}"
+    # tmpdir = f"{util.reverse_taskname(name)}.{os.getpid()}.{util.now_micros()}"
     launch_id = util.random_id()
-    self.local_scratch = f"{SCRATCH_ROOT}/{tmpdir}-{launch_id}"
-    self.remote_scratch = f"{SCRATCH_ROOT}/{tmpdir}-{launch_id}"
+    self.taskdir = f"{TASKDIR_ROOT}/{name}-{launch_id}"
+    self.local_scratch = f"{SCRATCH_ROOT}/{name}-{launch_id}"
+    self.remote_scratch = f"{SCRATCH_ROOT}/{name}-{launch_id}"
 
     self.log(f"Creating taskdir {self.taskdir}")
     self._run_raw('mkdir -p ' + self.taskdir)
@@ -84,7 +84,7 @@ class Task(backend.Task):
     for line in install_script.split('\n'):
       self.run(line)
 
-  def run(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs) -> int:
+  def run(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs):
 
     if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
       # HACK
@@ -118,7 +118,7 @@ class Task(backend.Task):
     cmd = util.shell_strip_comment(cmd)
     # assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
-    self.file_write(self._cmd_fn, cmd + '\n')
+    self.write(self._cmd_fn, cmd + '\n')
     modified_cmd = f'{cmd} ; echo $? > {self._status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
 
@@ -130,15 +130,16 @@ class Task(backend.Task):
 
     if not self.wait_for_file(self._status_fn, max_wait_sec=60):
       self.log(f"Retrying waiting for {self._status_fn}")
-    while not self.file_exists(self._status_fn):
+    while not self.exists(self._status_fn):
       self.log(f"Still waiting for {cmd}")
       self.wait_for_file(self._status_fn, max_wait_sec=60)
-    contents = self.file_read(self._status_fn)
+    contents = self.read(self._status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(0.01)
     status = int(open(self._status_fn).read().strip())
+    self.last_status = status
 
     if status != 0:
       if not ignore_errors:
@@ -155,22 +156,23 @@ class Task(backend.Task):
     status_fn = self._status_fn
     if not self.wait_for_file(status_fn, max_wait_sec=30):
       self.log(f"Retrying waiting for {status_fn}")
-    while not self.file_exists(status_fn):
+    while not self.exists(status_fn):
       self.log(f"Still waiting for {self._cmd}")
       self.wait_for_file(status_fn, max_wait_sec=30)
-    contents = self.file_read(status_fn)
+    contents = self.read(status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(check_interval)
-      contents = self.file_read(status_fn)
+      contents = self.read(status_fn)
     status = int(contents.strip())
+    self.last_status = status
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
       if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
         self.log(
-          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
         self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {self._cmd} returned status {status}")
@@ -200,7 +202,8 @@ class Task(backend.Task):
 
     self.tmux_window_id = window_id
 
-  def _run_with_output_on_failure(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs) -> int:
+  # This is a future "run" command, will become "run" once all cases are checked
+  def _run_with_output_on_failure(self, cmd, non_blocking=False, ignore_errors=False, **_kwargs) -> str:
     if not self._can_run:
       assert False, "Using .run before initialization finished"
     if '\n' in cmd:
@@ -214,7 +217,7 @@ class Task(backend.Task):
 
     cmd = cmd.strip()
     if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
-      return -1
+      return ''
     self.run_counter += 1
     self.log("tmux> %s", cmd)
 
@@ -227,7 +230,7 @@ class Task(backend.Task):
     cmd = util.shell_strip_comment(cmd)
     # assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
 
-    self.file_write(self._cmd_fn, cmd + '\n')
+    self.write(self._cmd_fn, cmd + '\n')
     #  modified_cmd = f'{cmd} ; echo $? > {self._status_fn}'
     modified_cmd = f'{cmd} > >(tee -a {self._out_fn}) 2> >(tee -a {self._out_fn} >&2); echo $? > {self._status_fn}'
     modified_cmd = shlex.quote(modified_cmd)
@@ -236,31 +239,32 @@ class Task(backend.Task):
     tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
     self._run_raw(tmux_cmd)
     if non_blocking:
-      return 0
+      return ''
 
     if not self.wait_for_file(self._status_fn, max_wait_sec=60):
       self.log(f"Retrying waiting for {self._status_fn}")
-    while not self.file_exists(self._status_fn):
+    while not self.exists(self._status_fn):
       self.log(f"Still waiting for {cmd}")
       self.wait_for_file(self._status_fn, max_wait_sec=60)
-    contents = self.file_read(self._status_fn)
+    contents = self.read(self._status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(0.01)
     status = int(open(self._status_fn).read().strip())
+    self.last_status = status
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
       self.log(
-        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
       self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
         self.log(f"Warning: command {cmd} returned status {status}")
 
-    return status
+    return self.read(self._out_fn)
 
   def _run_raw(self, cmd, ignore_errors=False):
     """Runs command directly, skipping tmux interface"""
@@ -285,7 +289,7 @@ class Task(backend.Task):
       remote_fn = os.path.basename(local_fn)
     self.log('uploading ' + local_fn + ' to ' + remote_fn)
 
-    if dont_overwrite and self.file_exists(remote_fn):
+    if dont_overwrite and self.exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
@@ -301,23 +305,23 @@ class Task(backend.Task):
     #    self.log("downloading %s to %s" % (remote_fn, local_fn))
     if not remote_fn.startswith('/'):
       remote_fn = self._cwd + '/' + remote_fn
-    if self.file_exists(remote_fn):
+    if self.exists(remote_fn):
       os.system(f'cp {remote_fn} {local_fn}')
     else:
       raise RuntimeError(f"No such file {remote_fn}")
 
-  def file_exists(self, remote_fn):
+  def exists(self, remote_fn):
     return os.path.exists(remote_fn)
 
-  def file_read(self, remote_fn):
+  def read(self, remote_fn):
     tmp_fn = self.local_scratch + '/' + str(util.now_micros())
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
 
-  def file_write(self, remote_fn, contents):
+  def write(self, remote_fn, contents):
     def make_temp_fn():
       """Returns temporary filename for this task."""
-      return self.local_scratch + '/file_write.' + str(util.now_micros())
+      return self.local_scratch + '/write.' + str(util.now_micros())
 
     tmp_fn = make_temp_fn()
     open(tmp_fn, 'w').write(contents)
@@ -340,19 +344,32 @@ class Task(backend.Task):
   #   for line in iter(p.stdout.readline, ''):
   #     sys.stdout.write(line.decode('ascii', errors='ignore'))
 
+  @property
+  def logdir(self):
+    """Returns logging directory, creating one if necessary. See "Logdir" section  of design doc on naming convention."""
+
+    run_name = ncluster_globals.get_run_for_task(self)
+    logdir = ncluster_globals.get_logdir(run_name)
+    if logdir:
+      return logdir
+
+    # create logdir. Only single task in a group creates the logdir
+    if ncluster_globals.is_chief(self, run_name):
+      chief = self
+    else:
+      chief = ncluster_globals.get_chief(run_name)
+
+    chief.setup_logdir()
+    return ncluster_globals.get_logdir(run_name)
+   # release lock
+
   def setup_logdir(self):
+    # todo: locking on logdir creation
+
     """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
     """
-    assert self.job.run_.name
-
-    if not self.is_chief():
-      return
-    if self.job.run_.logdir_:
-      return  # already created logdir
-
-    self.log("Creating logdir")
-
-    # logdir root can differ between backends, hence get it from the actual backend being used
+    run_name = ncluster_globals.get_run_for_task(self)
+    self.log("Creating logdir for run "+run_name)
     logdir_root = ncluster_globals.LOGDIR_ROOT
     assert logdir_root
 
@@ -360,16 +377,18 @@ class Task(backend.Task):
     find_command = f'find {logdir_root} -maxdepth 1 -type d'
 
     stdout, stderr = self.run_with_output(find_command)
-    logdir = f"{logdir_root}/{self.run_name}"
+    logdir = f"{logdir_root}/{run_name}"
 
-    # TODO, simplify this logic, just get the largest logdir encountered, then do +1
     counter = 0
     while logdir in stdout:
       counter += 1
-      lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
-      self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
-      logdir = lll
+      new_logdir = f'{logdir_root}/{run_name}.{counter:02d}'
+      self.log(f'Warning, logdir {logdir} exists, deduping to {new_logdir}')
+      logdir = new_logdir
     self.run(f'mkdir -p {logdir}')
+
+    ncluster_globals.set_logdir(run_name, logdir)
+    return logdir
 
 
 class Job(backend.Job):
@@ -384,23 +403,17 @@ class Run:
   """
   jobs: List[Job]
 
-  def __init__(self, name='', jobs=[], **kwargs):
+  def __init__(self, name='', **kwargs):
     """Creates a run. If install_script is specified, it's used as default
     install_script for all jobs (can be overridden by Job constructor)"""
 
-    assert name, "Must specify name for current run"
-
     self.name = name
-    self.jobs = jobs
     self.kwargs = kwargs
-    self.logdir_ = None
-    util.log(f"Choosing placement_group for run {name}")
-    self.aws_placement_group_name = name + '-' + util.random_id()
 
   @property
   def logdir(self):
-    assert self.jobs
-    return self.jobs[0].logdir
+    chief_task = ncluster_globals.get_chief(self.name)
+    return chief_task.logdir
 
   # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
   def run(self, *args, **kwargs):
@@ -425,67 +438,54 @@ class Run:
       job.upload(*args, **kwargs)
 
   def make_job(self, name='', **kwargs):
-    return make_job(name, run_=self, **kwargs)
+    return make_job(name+'.'+self.name, run_name=self.name, **kwargs)
 
 
 def make_task(name='',
               run_name='',
-              run_=None,
               **kwargs) -> Task:
   """Create task, also create dummy run if not specified."""
   ncluster_globals.task_launched = True
 
-  if not name:
-    script_id = util.alphanumeric_hash(sys.argv[0])
-    name = f"unnamedlocaltask-{script_id}"
-
-  if run_ and run_name:
-    assert run_.name == run_name, f"Got run_.name {run_.name} but run_name {run_name}"
-  elif run_:
-    run_name = run_.name
-
-  if not run_name:
-    run_name = f'unnamedrun-{name}'
-    dummy_run = Run(run_name)
+  name = ncluster_globals.auto_assign_task_name_if_needed(name)
 
   # tmux can't use . for session names
   tmux_session = name.replace('.', '=')
   tmux_window_id = 0
   util.log(f'killing session {tmux_session}')
-  os.system(f'tmux kill-session -t {tmux_session}')
+
+  if not util.is_set("NCLUSTER_NOKILL_TMUX"):
+    os.system(f'tmux kill-session -t {tmux_session}')
   os.system(f'tmux new-session -s {tmux_session} -n {tmux_window_id} -d')
 
-  task = Task(name, job=None,
+  task = Task(name,
               tmux_session=tmux_session,  # propagate optional args
+              run_name=run_name,
               **kwargs)
+  ncluster_globals.register_task(task, run_name)
   return task
 
 
-def make_job(name=None,
+def make_job(name="",
              num_tasks=1,
-             run_name=None,
-             run_=None,
+             run_name="",
              install_script='',
              **kwargs
              ) -> backend.Job:
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
 
-  if run_ is None:
-    run_ = Run(run_name)
-
-  assert name.count(
-    '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
+  name = ncluster_globals.auto_assign_job_name_if_needed(name)
+  util.validate_ncluster_job_name(name)
   tasks = [make_task(f"{i}.{name}",
                      run_name=run_name,
-                     run_=run_,
                      install_script=install_script,
                      **kwargs
                      ) for i in range(num_tasks)]
 
-  job = backend.Job(name=name, run_=run_, tasks=tasks, **kwargs)
-  run_.jobs.append(job)
+  job = backend.Job(name=name, tasks=tasks, **kwargs)
   return job
 
 
 def make_run(name) -> Run:
-  return Run(name)
+  run = Run(name)
+  return run

@@ -10,16 +10,20 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, default='gpubox',
                     help="instance name")
 parser.add_argument('--image-name', type=str,
-                    default='Deep Learning AMI (Ubuntu) Version 13.0',
+                    default='Deep Learning AMI (Ubuntu) Version 15.0',
                     help="name of AMI to use ")
-parser.add_argument('--instance-type', type=str, default='g3.4xlarge',
+parser.add_argument('--instance-type', type=str, default='p3.2xlarge',
                     help="type of instance")
 parser.add_argument('--password',
                     default='DefaultNotebookPasswordPleaseChange',
                     help='password to use for jupyter notebook')
+parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
+
 args = parser.parse_args()
 module_path = os.path.dirname(os.path.abspath(__file__))
 
+if args.aws:
+  ncluster.set_backend('aws')
 
 def main():
   task = ncluster.make_task(name=args.name,

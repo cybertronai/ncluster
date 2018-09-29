@@ -13,11 +13,7 @@
 # export NCLUSTER_IMAGE='Deep Learning AMI (Ubuntu) Version 14.0'
 # export NCLUSTER_INSTANCE=c5.18xlarge
 # python pytorch_p2p.py --aws
-# 006/10 added 100 MBs in 82.8 ms: 1207.63 MB/second
-# 007/10 added 100 MBs in 83.5 ms: 1197.94 MB/second
-# 008/10 added 100 MBs in 83.0 ms: 1204.47 MB/second
-# 009/10 added 100 MBs in 83.5 ms: 1197.89 MB/second
-# min:    82.15, median:    83.23, mean:    83.11
+
 
 import os
 import sys
@@ -116,7 +112,7 @@ def launcher():
                    non_blocking=True)
 
   job.tasks[0].join()
-  print(job.tasks[0].file_read('out'))
+  print(job.tasks[0].read('out'))
     
 
 def main():

@@ -41,6 +41,7 @@ min:   132.97, median:   134.98, mean:   137.27
 
 Can use more shards
 ./tf_two_machines.py --aws --shards=8 --iters=1000
+994/1000 sent 100 MBs in 87.0 ms: 1149.50 MB/second
 995/1000 sent 100 MBs in 87.0 ms: 1149.21 MB/second
 996/1000 sent 100 MBs in 86.8 ms: 1152.11 MB/second
 997/1000 sent 100 MBs in 89.8 ms: 1113.89 MB/second
@@ -76,7 +77,7 @@ parser.add_argument("--size-mb", default=100, type=int,
 parser.add_argument("--shards", default=1, type=int,
                     help="how many ways to shard the variable")
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 parser.add_argument('--name',
                     default='tf_two_machines')
 
@@ -124,7 +125,7 @@ def run_launcher():
                non_blocking=True)
   sender.run(
     f'python {__file__} --role=sender {ip_config} --iters={args.iters} --size-mb={args.size_mb} --shards={args.shards}')
-  print(sender.file_read('out'))
+  print(sender.read('out'))
 
 
 def run_receiver():

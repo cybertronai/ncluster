@@ -122,7 +122,7 @@ def launcher():
                    non_blocking=True)
 
   job.tasks[0].join()
-  print(job.tasks[0].file_read('out'))
+  print(job.tasks[0].read('out'))
     
 
 def main():

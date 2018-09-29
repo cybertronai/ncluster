@@ -1,21 +1,25 @@
-# AWS implementation of backend.py
+"""AWS implementation of backend.py
+
+Not thread-safe
+"""
 import glob
 import os
+import pprint
 import shlex
 import signal
 import stat
-import sys
 import threading
 import time
-from typing import Union, Tuple, List
+from typing import Tuple, List
+
 import paramiko
-import pprint
 
 from ncluster import ncluster_globals
-from . import backend
-from . import aws_util as u
-from . import util
+
 from . import aws_create_resources as create_lib
+from . import aws_util as u
+from . import backend
+from . import util
 
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
@@ -29,14 +33,15 @@ GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
   creation of SSH session, shutdown"""
+  last_status: int  # status of last command executed
 
   tmux_window_id: int
   tmux_available_window_ids: List[int]
 
   sftp: paramiko.SFTPClient
 
-  def __init__(self, name, instance, *, install_script='', image_name='',
-               job=None, **extra_kwargs):
+  def __init__(self, name, *, instance, install_script='', image_name='',
+               **extra_kwargs):
     """
    Initializes Task on top of existing AWS instance. Blocks until instance is ready to execute
    shell commands.
@@ -46,19 +51,19 @@ class Task(backend.Task):
       instance: ec2.Instance object (https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2.html#instance)
       install_script:
       image_name: AWS image name
-      job: name of parent job
       **extra_kwargs: unused kwargs (kept for compatibility with other backends)
     """
     self._cmd_fn = None
     self._cmd = None
     self._status_fn = None  # location of output of last status
+    self.last_status = -1
+
     self._can_run = False  # indicates that things needed for .run were created
     self.initialize_called = False
 
     self.name = name
     self.instance = instance
     self.install_script = install_script
-    self.job = job
     self.extra_kwargs = extra_kwargs
 
     self.public_ip = u.get_public_ip(instance)
@@ -121,7 +126,7 @@ tmux a
   def _is_initialized_fn_present(self):
     self.log("Checking for initialization status")
     try:
-      return 'ok' in self.file_read(self._initialized_fn)
+      return 'ok' in self.read(self._initialized_fn)
     except Exception:
       return False
 
@@ -141,7 +146,7 @@ tmux a
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
-    if not int(os.environ.get("NCLUSTER_NOKILL_TMUX", "0")):
+    if not util.is_set("NCLUSTER_NOKILL_TMUX"):
       self._run_raw(f'tmux kill-session -t {self.tmux_session}',
                     ignore_errors=True)
     else:
@@ -189,7 +194,7 @@ tmux a
 
   def run(self, cmd, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
-          check_interval=0.2) -> int:
+          check_interval=0.2):
 
     # TODO(y): make _run_with_output_on_failure default, and delete this
     if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
@@ -215,6 +220,7 @@ tmux a
       status = -1
       for subcmd in cmds:
         status = self.run(subcmd)
+        self.last_status = status
       return status
 
     cmd = cmd.strip()
@@ -243,16 +249,17 @@ tmux a
 
     if not self.wait_for_file(self._status_fn, max_wait_sec=30):
       self.log(f"Retrying waiting for {self._status_fn}")
-    while not self.file_exists(self._status_fn):
+    while not self.exists(self._status_fn):
       self.log(f"Still waiting for {cmd}")
       self.wait_for_file(self._status_fn, max_wait_sec=30)
-    contents = self.file_read(self._status_fn)
+    contents = self.read(self._status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(check_interval)
-      contents = self.file_read(self._status_fn)
+      contents = self.read(self._status_fn)
     status = int(contents.strip())
+    self.last_status = status
 
     if status != 0:
       if not ignore_errors:
@@ -269,22 +276,23 @@ tmux a
     status_fn = self._status_fn
     if not self.wait_for_file(status_fn, max_wait_sec=30):
       self.log(f"Retrying waiting for {status_fn}")
-    while not self.file_exists(status_fn):
+    while not self.exists(status_fn):
       self.log(f"Still waiting for {self._cmd}")
       self.wait_for_file(status_fn, max_wait_sec=30)
-    contents = self.file_read(status_fn)
+    contents = self.read(status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(check_interval)
-      contents = self.file_read(status_fn)
+      contents = self.read(status_fn)
     status = int(contents.strip())
+    self.last_status = status
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
       if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
         self.log(
-          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
         self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {self._cmd} returned status {status}")
@@ -296,9 +304,8 @@ tmux a
   def _run_with_output_on_failure(self, cmd, non_blocking=False,
                                   ignore_errors=False,
                                   max_wait_sec=365 * 24 * 3600,
-                                  check_interval=0.2) -> int:
-    """Experimental version of run propagates error messages to client. The
-    downside is that nothing gets printed on console."""
+                                  check_interval=0.2) -> str:
+    """Experimental version of run propagates error messages to client. This command will be default "run" eventually"""
 
     if not self._can_run:
       assert False, "Using .run before initialization finished"
@@ -308,7 +315,7 @@ tmux a
 
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
-      return -1
+      return ''
     self.run_counter += 1
     self.log("tmux> %s", cmd)
 
@@ -340,29 +347,30 @@ tmux a
     if not self.wait_for_file(self._status_fn, max_wait_sec=60):
       self.log(f"Retrying waiting for {self._status_fn}")
     elapsed_time = time.time() - start_time
-    while not self.file_exists(self._status_fn) and elapsed_time < max_wait_sec:
+    while not self.exists(self._status_fn) and elapsed_time < max_wait_sec:
       self.log(f"Still waiting for {cmd}")
       self.wait_for_file(self._status_fn, max_wait_sec=60)
       elapsed_time = time.time() - start_time
-    contents = self.file_read(self._status_fn)
+    contents = self.read(self._status_fn)
 
     # if empty wait a bit to allow for race condition
     if len(contents) == 0:
       time.sleep(check_interval)
-      contents = self.file_read(self._status_fn)
+      contents = self.read(self._status_fn)
     status = int(contents.strip())
+    self.last_status = status
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
       self.log(
-        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.file_read(self._out_fn)}'")
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
       self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
       else:
         self.log(f"Warning: command {cmd} returned status {status}")
 
-    return status
+    return self.read(self._out_fn)
 
   def _run_raw(self, cmd: str, ignore_errors=False) -> Tuple[str, str]:
     """Runs given cmd in the task using current SSH session, returns
@@ -449,9 +457,9 @@ tmux a
 
     if '/' in remote_fn:
       remote_dir = os.path.dirname(remote_fn)
-      assert self.file_exists(
+      assert self.exists(
         remote_dir), f"Remote dir {remote_dir} doesn't exist"
-    if dont_overwrite and self.file_exists(remote_fn):
+    if dont_overwrite and self.exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
       return
 
@@ -461,7 +469,7 @@ tmux a
     else:
       assert os.path.isfile(local_fn), "%s is not a file" % (local_fn,)
       # this crashes with IOError when upload failed
-      if self.file_exists(remote_fn) and self.isdir(remote_fn):
+      if self.exists(remote_fn) and self.isdir(remote_fn):
         remote_fn = remote_fn + '/' + os.path.basename(local_fn)
       self.sftp.put(localpath=local_fn, remotepath=remote_fn)
       maybe_fix_mode(local_fn, remote_fn)
@@ -479,16 +487,16 @@ tmux a
       self.log("downloading %s to %s" % (remote_fn, local_fn))
     self.sftp.get(remote_fn, local_fn)
 
-  def file_exists(self, remote_fn):
+  def exists(self, remote_fn):
     stdout, stderr = self._run_raw('stat ' + remote_fn, ignore_errors=True)
     return 'No such file' not in stdout
 
-  def file_write(self, remote_fn, contents):
+  def write(self, remote_fn, contents):
     tmp_fn = self.local_scratch + '/' + str(util.now_micros())
     open(tmp_fn, 'w').write(contents)
     self.upload(tmp_fn, remote_fn)
 
-  def file_read(self, remote_fn):
+  def read(self, remote_fn):
     tmp_fn = self.local_scratch + '/' + str(util.now_micros())
     self.download(remote_fn, tmp_fn)
     return open(tmp_fn).read()
@@ -513,19 +521,35 @@ tmux a
 
     self.tmux_window_id = window_id
 
+
+  @property
+  def logdir(self):
+    """Returns logging directory, creating one if necessary. See "Logdir" section
+    of design doc on naming convention"""
+
+    run_name = ncluster_globals.get_run_for_task(self)
+    logdir = ncluster_globals.get_logdir(run_name)
+    if logdir:
+      return logdir
+
+    # create logdir. Only single task in a group creates the logdir
+    if ncluster_globals.is_chief(self, run_name):
+      chief = self
+    else:
+      chief = ncluster_globals.get_chief(run_name)
+
+    chief.setup_logdir()
+    return ncluster_globals.get_logdir(run_name)
+
+    # release lock
+
   def setup_logdir(self):
-    """Create logdir for task/job/run. No-op if the task is not chief (0'th task of 0'th job of run)
+    # todo: locking on logdir creation
+
+    """Create logdir for task/job/run
     """
-    assert self.job.run_.name
-
-    if not self.is_chief():
-      return
-    if self.job.run_.logdir_:
-      return  # already created logdir
-
-    self.log("Creating logdir")
-
-    # logdir root can differ between backends, hence get it from the actual backend being used
+    run_name = ncluster_globals.get_run_for_task(self)
+    self.log("Creating logdir for run " + run_name)
     logdir_root = ncluster_globals.LOGDIR_ROOT
     assert logdir_root
 
@@ -533,43 +557,43 @@ tmux a
     find_command = f'find {logdir_root} -maxdepth 1 -type d'
 
     stdout, stderr = self.run_with_output(find_command)
-    logdir = f"{logdir_root}/{self.run_name}"
+    logdir = f"{logdir_root}/{run_name}"
 
-    # TODO, simplify this logic, just get the largest logdir encountered, then do +1
     counter = 0
     while logdir in stdout:
       counter += 1
-      lll = f'{logdir_root}/{self.job.run_.name}.{counter:02d}'
-      self.log(f'Warning, logdir {logdir} exists, deduping to {lll}')
-      logdir = lll
-
-
-    # fix permission for all parent directories.
-    # EFS may be shared among various users (ie ubuntu and ec2-user), so make
-    # sure all parent dirs are world-writeable
-    fragments = logdir_root.split('/')[1:]
-    root = ''
-    for fragment in fragments:
-      root = root + '/' + fragment
-      self.run('sudo chmod 777 ' + root, ignore_errors=True)
-
+      new_logdir = f'{logdir_root}/{run_name}.{counter:02d}'
+      self.log(f'Warning, logdir {logdir} exists, deduping to {new_logdir}')
+      logdir = new_logdir
     self.run(f'mkdir -p {logdir}')
-    self.job.run_.logdir_ = logdir
 
+    ncluster_globals.set_logdir(run_name, logdir)
+    return logdir
+
+    # legacy methods
+  def file_exists(self, remote_fn):
+    return self.exists(remote_fn)
+
+  def file_write(self, *args, **kwargs):
+    return self.write(*args, **kwargs)
+
+  def file_read(self, remote_fn):
+    return self.read(remote_fn)
 
 class Job(backend.Job):
   pass
 
 
-class Run:
+class Run(backend.Run):
   """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
   server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
   event files.
   :ivar aws_placement_group_name: somedoc
   """
+  placement_group: str  # unique identifier to use as placement_group group name
   jobs: List[Job]
 
-  def __init__(self, name='', jobs=None, **kwargs):
+  def __init__(self, name='', **kwargs):
     """Creates a run. If install_script is specified, it's used as default
     install_script for all jobs (can be overridden by Job constructor)"""
 
@@ -579,14 +603,14 @@ class Run:
     self.name = name
     self.jobs = jobs
     self.kwargs = kwargs
-    self.logdir_ = None
     util.log(f"Choosing placement_group for run {name}")
-    self.aws_placement_group_name = name + '-' + util.random_id()
+    self.placement_group = name + '-' + util.random_id()
 
   @property
   def logdir(self):
-    assert self.jobs
-    return self.jobs[0].logdir
+    # querying logdir has a side-effect of creation, so do it on chief task
+    chief_task = ncluster_globals.get_chief(self.name)
+    return chief_task.logdir
 
   # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
   def run(self, *args, **kwargs):
@@ -611,162 +635,7 @@ class Run:
       job.upload(*args, **kwargs)
 
   def make_job(self, name='', **kwargs):
-    return make_job(name, run_=self, **kwargs)
-
-
-# TODO: this method and a few others are backend specific, document in API doc
-def maybe_start_instance(instance):
-  """Starts instance if it's stopped, no-op otherwise."""
-
-  if not instance:
-    return
-
-  if instance.state['Name'] == 'stopped':
-    instance.start()
-    while True:
-      print(f"Waiting  for {instance} to start.")
-      instance.reload()
-      if instance.state['Name'] == 'running':
-        break
-      time.sleep(10)
-
-
-def maybe_wait_for_initializing_instance(instance):
-  """Starts instance if it's stopped, no-op otherwise."""
-
-  if not instance:
-    return
-
-  if instance.state['Name'] == 'initializing':
-    while True:
-      print(f"Waiting  for {instance} to leave state 'initializing'.")
-      instance.reload()
-      if instance.state['Name'] == 'running':
-        break
-      time.sleep(10)
-
-
-def maybe_create_resources(task: Task = None):
-  """Use heuristics to decide to possibly create resources"""
-
-  def log(*args):
-    if task:
-      task.log(*args)
-    else:
-      util.log(*args)
-
-  def should_create_resources():
-    """Check if gateway, keypair, vpc exist."""
-    prefix = u.get_prefix()
-    if u.get_keypair_name() not in u.get_keypair_dict():
-      log(f"Missing {u.get_keypair_name()} keypair, creating resources")
-      return True
-    vpcs = u.get_vpc_dict()
-    if prefix not in vpcs:
-      log(f"Missing {prefix} vpc, creating resources")
-      return True
-    vpc = vpcs[prefix]
-    gateways = u.get_gateway_dict(vpc)
-    if prefix not in gateways:
-      log(f"Missing {prefix} gateway, creating resources")
-      return True
-    return False
-
-  try:
-    # this locking is approximate, still possible for threads to slip through
-    if os.path.exists(AWS_LOCK_FN):
-      pid, ts, lock_taskname = open(AWS_LOCK_FN).read().split('-')
-      ts = int(ts)
-      log(f"waiting for aws resource creation, another resource initiation was "
-          f"initiated {int(time.time()-ts)} seconds ago by "
-          f"{lock_taskname}, delete lock file "
-          f"{AWS_LOCK_FN} if this is an error")
-      while True:
-        if os.path.exists(AWS_LOCK_FN):
-          log(f"waiting for lock file {AWS_LOCK_FN} to get deleted "
-              f"initiated {int(time.time()-ts)} seconds ago by ")
-          time.sleep(2)
-          continue
-        else:
-          break
-      return
-
-    with open(AWS_LOCK_FN, 'w') as f:
-      f.write(f'{os.getpid()}-{int(time.time())}-{task.name if task else ""}')
-
-    if not should_create_resources():
-      util.log("Resources already created, no-op")
-      os.remove(AWS_LOCK_FN)
-      return
-
-    create_lib.create_resources()
-  finally:
-    if os.path.exists(AWS_LOCK_FN):
-      os.remove(AWS_LOCK_FN)
-
-
-def set_aws_environment(task: Task = None):
-  """Sets up AWS environment from NCLUSTER environment variables"""
-  current_zone = os.environ.get('NCLUSTER_ZONE', '')
-  current_region = os.environ.get('AWS_DEFAULT_REGION', '')
-
-  def log(*args):
-    if task:
-      task.log(*args)
-    else:
-      util.log(*args)
-
-  if current_region and current_zone:
-    assert current_zone.startswith(
-      current_region), f'Current zone "{current_zone}" ($NCLUSTER_ZONE) is not ' \
-                       f'in current region "{current_region} ($AWS_DEFAULT_REGION)'
-    assert u.get_session().region_name == current_region  # setting from ~/.aws
-
-  # zone is set, set region from zone
-  if current_zone and not current_region:
-    current_region = current_zone[:-1]
-    os.environ['AWS_DEFAULT_REGION'] = current_region
-
-  # neither zone nor region not set, use default setting for region
-  # if default is not set, use NCLUSTER_DEFAULT_REGION
-  if not current_region:
-    current_region = u.get_session().region_name
-    if not current_region:
-      log(f"No default region available, using {NCLUSTER_DEFAULT_REGION}")
-      current_region = NCLUSTER_DEFAULT_REGION
-    os.environ['AWS_DEFAULT_REGION'] = current_region
-
-  # zone not set, use first zone of the region
-  #  if not current_zone:
-  #    current_zone = current_region + 'a'
-  #    os.environ['NCLUSTER_ZONE'] = current_zone
-
-  log(f"Using account {u.get_account_number()}, region {current_region}, "
-      f"zone {current_zone}")
-
-
-def maybe_create_name(name, instance_type='', image_name='', tasks=1):
-  """Function to create unique but persistent name for amazon resource
-
-  Args:
-    name:
-    instance_type:
-    image_name:
-    tasks:
-  """
-  if name:
-    return name
-  main_script = os.path.abspath(sys.argv[0])
-  script_id = util.alphanumeric_hash(
-    main_script + instance_type + image_name + str(tasks))
-  return f"unnamedtask-{script_id}"
-
-
-def maybe_create_run_name(run_name, name):
-  if run_name:
-    return run_name
-  else:
-    return 'unnamedrun-' + name
+    return make_job(name+'.'+self.name, run_name=self.name, **kwargs)
 
 
 def make_task(
@@ -776,9 +645,8 @@ def make_task(
         instance_type: str = '',
         image_name: str = '',
         disk_size: int = 0,
-        preemptible: Union[None, bool] = None,
-        run_: Run = None,
-        task: backend.Task = None,
+        preemptible=None,
+        logging_task: backend.Task = None,
         create_resources=True,
 ) -> Task:
   """
@@ -791,14 +659,13 @@ def make_task(
   Args:
     disk_size: default size of root disk, in GBs
     create_resources: whether this task will handle resource creation
-    run_: parent run
     name: see ncluster.make_task
     run_name: see ncluster.make_task
     install_script: see ncluster.make_task
     instance_type: instance type to use, defaults to $NCLUSTER_INSTANCE or t3.micro if unset
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
     preemptible: use cheaper preemptible/spot instances
-    task: partially initialized Task object, use it for logging
+    logging_task: partially initialized Task object, use it for logging
 
   Returns:
 
@@ -806,43 +673,36 @@ def make_task(
 
   ncluster_globals.task_launched = True
 
-  assert not preemptible, "Not implemented"
-
   def log(*_args):
-    if task:
-      task.log(*_args)
+    if logging_task:
+      logging_task.log(*_args)
     else:
       util.log(*_args)
 
   # if name not specified, use name which is the same across script invocations for given image/instance-type
-  name = maybe_create_name(name, instance_type, image_name)
-  run_name = maybe_create_run_name(run_name, name)
-  if run_name and run_:
-    assert run_name == run_.name, "Provided Run object and run_name, but run_.name is {run_.name} while run_name is {run_name}"
-
-  if run_ is None:
-    run_: Run = Run(run_name)
+  name = ncluster_globals.auto_assign_task_name_if_needed(name, instance_type,
+                                                          image_name)
 
   if not instance_type:
     instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
     log("Using instance " + instance_type)
 
-  set_aws_environment()
+  _set_aws_environment()
   if create_resources:
-    maybe_create_resources(task=task)
+    _maybe_create_resources(logging_task=logging_task)
   else:
     pass
 
-  # TODO: this creates incorrect placement group when recreating only 1 instance
+  run: Run = ncluster_globals.get_run_object(run_name)
   placement_group = ''
-  if u.instance_supports_placement_groups(instance_type):
-    placement_group = run_.aws_placement_group_name
-    #    log(f"Launching into placement group {placement_group}")
-    u.maybe_create_placement_group(placement_group)
+  if u.instance_supports_placement_groups(instance_type) and run:
+    placement_group = run.placement_group
+    log(f"Launching into placement_group group {placement_group}")
+    u.maybe_create_placement_group(run.placement_group)
 
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
-                                'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2')
+                                GENERIC_SMALL_IMAGE)
   log("Using image " + image_name)
 
   if preemptible is None:
@@ -854,13 +714,12 @@ def make_task(
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
-  #  subnet = u.get_subnet()
   ec2 = u.get_ec2_resource()
 
   instance = u.lookup_instance(name, instance_type,
                                image_name)
-  maybe_start_instance(instance)
-  maybe_wait_for_initializing_instance(instance)
+  _maybe_start_instance(instance)
+  _maybe_wait_for_initializing_instance(instance)
 
   # create the instance if not present
   if instance:
@@ -882,11 +741,13 @@ def make_task(
       }]
     }]
 
+    #    subnet = u.get_subnet()
     #    args['NetworkInterfaces'] = [{'SubnetId': subnet.id,
     #                                  'DeviceIndex': 0,
     #                                  'AssociatePublicIpAddress': True,
     #                                  'Groups': [security_group.id]}]
     #    placement_specs = {'AvailabilityZone': u.get_zone()}
+
     placement_specs = {}
     if placement_group:
       placement_specs['GroupName'] = placement_group
@@ -936,10 +797,12 @@ def make_task(
     log(f"Allocated {len(instances)} instances")
     instance = instances[0]
 
-  task = Task(name, instance,  # propagate optional args
+  task = Task(name, instance=instance,
               install_script=install_script,
               image_name=image_name,
               instance_type=instance_type)
+
+  ncluster_globals.register_task(task, run_name)
   return task
 
 
@@ -950,13 +813,11 @@ def make_job(
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
-        run_: Run = None,
         create_resources=True,
         **kwargs) -> Job:
   """
   Args:
     create_resources: if True, will create resources if necessary
-    run_: Run object to group
     name: see backend.make_task
     run_name: see backend.make_task
     num_tasks: number of tasks to launch
@@ -971,23 +832,18 @@ def make_job(
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
+  # dummy tasks for logging
   tasks = [backend.Task(f"{i}.{name}") for i in range(num_tasks)]
 
-  set_aws_environment(tasks[0])
+  _set_aws_environment(tasks[0])
   if create_resources:
-    maybe_create_resources(tasks[0])
+    _maybe_create_resources(tasks[0])
 
-  if run_ and run_name:
-    assert run_.name == run_name, f"Got run_.name {run_.name} but run_name {run_name}"
-  elif run_:
-    run_name = run_.name
+  name = ncluster_globals.auto_assign_job_name_if_needed(name)
+  run_name = ncluster_globals.auto_assign_run_name_if_needed(run_name)
+  _run = ncluster_globals.create_run_if_needed(run_name, make_run)
 
-  name = maybe_create_name(name, instance_type, image_name, num_tasks)
-  run_name = maybe_create_run_name(run_name, name)
-
-  if run_ is None:
-    run_ = Run(run_name)
-  job = Job(name=name, tasks=tasks, run_=run_, **kwargs)
+  job = Job(name=name, tasks=tasks, run_name=run_name, **kwargs)
 
   exceptions = []
 
@@ -997,8 +853,7 @@ def make_job(
       tasks[i] = make_task(f"{i}.{name}", run_name=run_name,
                            install_script=install_script,
                            instance_type=instance_type, image_name=image_name,
-                           run_=run_,
-                           task=tasks[i],
+                           logging_task=tasks[i],
                            create_resources=False,
                            # handle resources in job already
                            **kwargs)
@@ -1018,26 +873,155 @@ def make_job(
     raise exceptions[0]
 
   job.tasks = tasks
-  for task in job.tasks:
-    task.job = job
 
-  # double check that all instances are in the same placement group
+  # double check that all instances are in the same placement_group group
   # this can happen if some instances from previous smaller run are getting reused
   placement_dict = {task.instance.placement_group: task.name for task in
                     job.tasks}
-  # TODO: make placement group name derived from run, to make it deterministic
+  # TODO: make placement_group group name derived from run, to make it deterministic
   # on individual instance restarts
   if len(placement_dict) > 1:
-    util.log("Job tasks are spread over multiple placement groups")
+    util.log("Job tasks are spread over multiple placement_group groups")
     pprint.pprint(placement_dict)
     raise RuntimeError(
-      f"Got instance spread over multiple placement groups: {placement_dict}. Must terminate all instances in run {run_name} and try again.")
-  run_.jobs.append(job)
+      f"Got instance spread over multiple placement_group groups: {placement_dict}. Must terminate all instances in run {run_name} and try again.")
   return job
 
 
 def make_run(name) -> Run:
-  return Run(name)
+  run = Run(name)
+  ncluster_globals.register_run(name, run)
+  return run
 
-# def make_run(name, **kwargs):
-#  return Run(name, **kwargs)
+
+# TODO: this method and a few others are backend specific, document in API doc
+def _maybe_start_instance(instance):
+  """Starts instance if it's stopped, no-op otherwise."""
+
+  if not instance:
+    return
+
+  if instance.state['Name'] == 'stopped':
+    instance.start()
+    while True:
+      print(f"Waiting  for {instance} to start.")
+      instance.reload()
+      if instance.state['Name'] == 'running':
+        break
+      time.sleep(10)
+
+
+def _maybe_wait_for_initializing_instance(instance):
+  """Starts instance if it's stopped, no-op otherwise."""
+
+  if not instance:
+    return
+
+  if instance.state['Name'] == 'initializing':
+    while True:
+      print(f"Waiting  for {instance} to leave state 'initializing'.")
+      instance.reload()
+      if instance.state['Name'] == 'running':
+        break
+      time.sleep(10)
+
+
+def _maybe_create_resources(logging_task: Task = None):
+  """Use heuristics to decide to possibly create resources"""
+
+  def log(*args):
+    if logging_task:
+      logging_task.log(*args)
+    else:
+      util.log(*args)
+
+  def should_create_resources():
+    """Check if gateway, keypair, vpc exist."""
+    prefix = u.get_prefix()
+    if u.get_keypair_name() not in u.get_keypair_dict():
+      log(f"Missing {u.get_keypair_name()} keypair, creating resources")
+      return True
+    vpcs = u.get_vpc_dict()
+    if prefix not in vpcs:
+      log(f"Missing {prefix} vpc, creating resources")
+      return True
+    vpc = vpcs[prefix]
+    gateways = u.get_gateway_dict(vpc)
+    if prefix not in gateways:
+      log(f"Missing {prefix} gateway, creating resources")
+      return True
+    return False
+
+  try:
+    # this locking is approximate, still possible for threads to slip through
+    if os.path.exists(AWS_LOCK_FN):
+      pid, ts, lock_taskname = open(AWS_LOCK_FN).read().split('-')
+      ts = int(ts)
+      log(f"waiting for aws resource creation, another resource initiation was "
+          f"initiated {int(time.time()-ts)} seconds ago by "
+          f"{lock_taskname}, delete lock file "
+          f"{AWS_LOCK_FN} if this is an error")
+      while True:
+        if os.path.exists(AWS_LOCK_FN):
+          log(f"waiting for lock file {AWS_LOCK_FN} to get deleted "
+              f"initiated {int(time.time()-ts)} seconds ago by ")
+          time.sleep(2)
+          continue
+        else:
+          break
+      return
+
+    with open(AWS_LOCK_FN, 'w') as f:
+      f.write(
+        f'{os.getpid()}-{int(time.time())}-{logging_task.name if logging_task else ""}')
+
+    if not should_create_resources():
+      util.log("Resources already created, no-op")
+      os.remove(AWS_LOCK_FN)
+      return
+
+    create_lib.create_resources()
+  finally:
+    if os.path.exists(AWS_LOCK_FN):
+      os.remove(AWS_LOCK_FN)
+
+
+def _set_aws_environment(task: Task = None):
+  """Sets up AWS environment from NCLUSTER environment variables"""
+  current_zone = os.environ.get('NCLUSTER_ZONE', '')
+  current_region = os.environ.get('AWS_DEFAULT_REGION', '')
+
+  def log(*args):
+    if task:
+      task.log(*args)
+    else:
+      util.log(*args)
+
+  if current_region and current_zone:
+    assert current_zone.startswith(
+      current_region), f'Current zone "{current_zone}" ($NCLUSTER_ZONE) is not ' \
+                       f'in current region "{current_region} ($AWS_DEFAULT_REGION)'
+    assert u.get_session().region_name == current_region  # setting from ~/.aws
+
+  # zone is set, set region from zone
+  if current_zone and not current_region:
+    current_region = current_zone[:-1]
+    os.environ['AWS_DEFAULT_REGION'] = current_region
+
+  # neither zone nor region not set, use default setting for region
+  # if default is not set, use NCLUSTER_DEFAULT_REGION
+  if not current_region:
+    current_region = u.get_session().region_name
+    if not current_region:
+      log(f"No default region available, using {NCLUSTER_DEFAULT_REGION}")
+      current_region = NCLUSTER_DEFAULT_REGION
+    os.environ['AWS_DEFAULT_REGION'] = current_region
+
+  # zone not set, use first zone of the region
+  #  if not current_zone:
+  #    current_zone = current_region + 'a'
+  #    os.environ['NCLUSTER_ZONE'] = current_zone
+
+  log(f"Using account {u.get_account_number()}, region {current_region}, "
+      f"zone {current_zone}")
+

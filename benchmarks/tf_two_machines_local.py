@@ -38,7 +38,7 @@ parser.add_argument("--size-mb", default=100, type=int,
 parser.add_argument("--shards", default=1, type=int,
                     help="how many ways to shard the variable")
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 parser.add_argument('--name',
                     default='tf_two_machines_local')
 
@@ -89,7 +89,7 @@ def run_launcher():
     worker.run('source activate tensorflow_p36')
   worker.run(
     f'python {__file__} --role=sender {ip_config} --iters={args.iters} --size-mb={args.size_mb} --shards={args.shards}')
-  print(worker.file_read('out'))
+  print(worker.read('out'))
 
 
 def run_receiver():

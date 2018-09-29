@@ -41,7 +41,7 @@ parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
 parser.add_argument("--iters", default=20, type=int, help="Maximum number of additions")
 parser.add_argument("--data-mb", default=100, type=int, help="size of vector in MBs")
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 
 # internal flags
 parser.add_argument('--role', default='launcher', type=str)

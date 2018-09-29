@@ -1,5 +1,6 @@
 """
-Various helper utilities used internally by ncluster project
+Various helper utilities used internally by ncluster project, but may be potentially
+useful outside of the cluster project.
 """
 
 import os
@@ -12,7 +13,8 @@ import shlex
 
 # starting value for now_micros (Aug 31, 2018)
 # using this to make various timestamped names shorter
-EPOCH_MICROS=1535753974788163
+EPOCH_MICROS = 1535753974788163
+
 
 def is_iterable(k):
   return isinstance(k, Iterable)
@@ -20,18 +22,18 @@ def is_iterable(k):
 
 def now_micros(absolute=False) -> int:
   """Return current micros since epoch as integer."""
-  micros = int(time.time()*1e6)
+  micros = int(time.time() * 1e6)
   if absolute:
     return micros
   return micros - EPOCH_MICROS
 
 
 def now_millis(absolute=False) -> int:
-  """Return current micros since epoch as integer."""
-  millis = int(time.time()*1e3)
+  """Return current millis since epoch as integer."""
+  millis = int(time.time() * 1e3)
   if absolute:
     return millis
-  return millis - EPOCH_MICROS/1000
+  return millis - EPOCH_MICROS // 1000
 
 
 def current_timestamp() -> str:
@@ -53,12 +55,13 @@ def log(*args, **kwargs):
 
 def install_pdb_handler():
   """Make CTRL+\ break into gdb."""
-  
+
   import signal
   import pdb
 
   def handler(_signum, _frame):
     pdb.set_trace()
+
   signal.signal(signal.SIGQUIT, handler)
 
 
@@ -78,7 +81,7 @@ def shell_add_echo(script):
     if not cmd:
       continue
     new_script += "echo \\* " + shlex.quote(cmd) + "\n"
-    new_script += cmd+"\n"
+    new_script += cmd + "\n"
   return new_script
 
 
@@ -90,10 +93,10 @@ def shell_strip_comment(cmd):
     return cmd
 
 
-def random_id(N=5):
+def random_id(k=5):
   """Random id to use for AWS identifiers."""
   #  https://stackoverflow.com/questions/2257441/random-string-generation-with-upper-case-letters-and-digits-in-python
-  return ''.join(random.choices(string.ascii_lowercase + string.digits, k=N))
+  return ''.join(random.choices(string.ascii_lowercase + string.digits, k=k))
 
 
 def alphanumeric_hash(s: str, size=5):
@@ -104,6 +107,7 @@ def alphanumeric_hash(s: str, size=5):
   s = base64.b32encode(hash_object.digest())
   result = s[:size].decode('ascii').lower()
   return result
+
 
 def reverse_taskname(name: str) -> str:
   """
@@ -154,4 +158,11 @@ def assert_script_in_current_directory():
   """Assert fail if current directory is different from location of the script"""
 
   script = sys.argv[0]
-  assert os.path.abspath(os.path.dirname(script)) == os.path.abspath('.'), f"Change into directory of script {script} and run again."
+  assert os.path.abspath(os.path.dirname(script)) == os.path.abspath(
+    '.'), f"Change into directory of script {script} and run again."
+
+
+def validate_ncluster_job_name(name):
+  assert name.count(
+    '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
+

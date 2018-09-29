@@ -136,7 +136,7 @@ def get_placement_group_dict():
   for placement_group_response in response['PlacementGroups']:
     key = placement_group_response['GroupName']
     if key in result:
-      util.log(f"Warning: Duplicate placement group {key}")
+      util.log(f"Warning: Duplicate placement_group group {key}")
       if DUPLICATE_CHECKING:
         assert False
     result[key] = ec2.PlacementGroup(key)
@@ -661,8 +661,8 @@ def wait_until_available(resource):
 
 
 def maybe_create_placement_group(name='', max_retries=10):
-  """Creates placement group or reuses existing one. Crash if unable to create
-    placement group. If name is empty, ignores request."""
+  """Creates placement_group group or reuses existing one. Crash if unable to create
+    placement_group group. If name is empty, ignores request."""
 
   if not name:
     return
@@ -671,10 +671,10 @@ def maybe_create_placement_group(name='', max_retries=10):
   while True:
     try:
       client.describe_placement_groups(GroupNames=[name])
-      print("Reusing placement group: " + name)
+      print("Reusing placement_group group: " + name)
       break  # no Exception means group name was found
     except Exception:
-      print("Creating placement group: " + name)
+      print("Creating placement_group group: " + name)
       try:
         _response = client.create_placement_group(GroupName=name,
                                                   Strategy='cluster')
@@ -694,7 +694,7 @@ def maybe_create_placement_group(name='', max_retries=10):
       print("Got exception: %s" % (e,))
     counter += 1
     if counter >= max_retries:
-      assert False, f'Failed to create placement group {name} in {max_retries} attempts'
+      assert False, f'Failed to create placement_group group {name} in {max_retries} attempts'
     time.sleep(RETRY_INTERVAL_SEC)
 
 

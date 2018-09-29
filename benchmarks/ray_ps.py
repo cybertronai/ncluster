@@ -43,7 +43,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--role", default='launcher', type=str,
                     help="launcher/driver")
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 14.0')
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 parser.add_argument("--size-mb", default=10, type=int,
                     help='how much data to send at each iteration')
 parser.add_argument("--num-workers", default=2, type=int)
@@ -136,7 +136,7 @@ def run_launcher():
   
   head.run(f'python {__file__} --role=driver --ip={head.ip}:6379 --size-mb={args.size_mb} --iters={args.iters} --num-workers={args.num_workers} --num-ps={args.num_ps}')
   
-  print(head.file_read('out'))
+  print(head.read('out'))
 
 
 def transpose(list_of_lists):
