@@ -578,7 +578,7 @@ def get_instance_property(instance, property_name):
       time.sleep(RETRY_INTERVAL_SEC)
       try:
         instance.reload()
-      except:
+      except Exception:
         pass
       continue
 
