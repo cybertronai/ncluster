@@ -561,18 +561,25 @@ def get_ip(instance):
 
 
 def get_instance_property(instance, property_name):
-  """Retrieves property of an instance, with retries"""
+  """Retrieves property of an instance, keeps retrying until getting a non-None"""
 
   name = get_name(instance)
   while True:
     try:
       value = getattr(instance, property_name)
-      assert value is not None, f"{property_name} was None"
-      break
+      if value is not None:
+        break
+      print(f"retrieving {property_name} on {name} produced None, retrying")
+      time.sleep(RETRY_INTERVAL_SEC)
+      instance.reload()
+      continue
     except Exception as e:
       print(f"retrieving {property_name} on {name} failed with {e}, retrying")
       time.sleep(RETRY_INTERVAL_SEC)
-      instance.reload()
+      try:
+        instance.reload()
+      except:
+        pass
       continue
 
   return value
