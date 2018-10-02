@@ -10,7 +10,7 @@
 # min:    21.58, median:    24.97, mean:    25.61
 
 # To run on AWS:
-# export NCLUSTER_IMAGE='Deep Learning AMI (Ubuntu) Version 14.0'
+# export NCLUSTER_IMAGE='Deep Learning AMI (Ubuntu) Version 15.0'
 # export NCLUSTER_INSTANCE=c5.18xlarge
 # python pytorch_p2p.py --aws
 # 990/1000 added 100 MBs in 83.7 ms: 1194.35 MB/second
@@ -41,6 +41,8 @@ parser.add_argument('--size-mb', type=int, default=100,
 parser.add_argument('--iters', type=int, default=10,
                     help='how many iterations')
 parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
+parser.add_argument('--image',
+                    default='Deep Learning AMI (Ubuntu) Version 15.0')
 
 
 # mpi flags
@@ -104,7 +106,7 @@ def launcher():
   if args.aws:
     ncluster.set_backend('aws')
 
-  job = ncluster.make_job(args.name, num_tasks=2)
+  job = ncluster.make_job(args.name, num_tasks=2, image_name=args.image)
   job.upload(__file__)
   job.upload('util.py')
 
