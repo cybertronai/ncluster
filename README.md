@@ -1,6 +1,15 @@
 # ncluster
+By Yaroslav Bulatov and Andrew Shaw
 
-## Usage
+```
+import ncluster
+task = ncluster.make_task(instance_type='p2.xlarge')
+task.upload('myscript.py')
+task.run('python myscript.py > out')
+task.download('out')
+```
+
+## Installation
 Install pip, tmux, Python 3.6 (see below), then
 
 ```
