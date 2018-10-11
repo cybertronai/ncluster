@@ -1,3 +1,7 @@
+wrapt
+ray
+numpy
+torch
 tensorflow
 boto3
 paramiko
