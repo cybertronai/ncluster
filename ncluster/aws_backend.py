@@ -197,7 +197,7 @@ tmux a
           check_interval=0.2):
 
     # TODO(y): make _run_with_output_on_failure default, and delete this
-    if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
+    if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE') or True:
       # experimental version that captures output and prints it on failure
       # redirection things break bash commands, so
       # don't redirect on bash commands like source
@@ -290,7 +290,7 @@ tmux a
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
-      if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE'):
+      if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE') or True:
         self.log(
           f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
         self.log(f"\n{'*'*80}\nEnd failing output")

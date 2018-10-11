@@ -20,3 +20,8 @@ Then
 conda create -n new python=3.6 -y
 conda activate new
 ```
+
+Extra Deps:
+```
+brew install fswatch
+```

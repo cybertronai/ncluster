@@ -166,3 +166,7 @@ def validate_ncluster_job_name(name):
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
+
+def toseconds(dt):
+  """Converts datetime object to seconds."""
+  return time.mktime(dt.utctimetuple())

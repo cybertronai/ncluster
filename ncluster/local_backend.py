@@ -34,6 +34,7 @@ class Task(backend.Task):
   def __init__(self, name, *, tmux_session, install_script='', job=None,
                **kwargs):
 
+    self.homedir = os.environ['HOME']
     self._cmd_fn = None
     self._cmd = None
     self._status_fn = None  # location of output of last status
@@ -287,7 +288,6 @@ class Task(backend.Task):
 
     if remote_fn is None:
       remote_fn = os.path.basename(local_fn)
-    self.log('uploading ' + local_fn + ' to ' + remote_fn)
 
     if dont_overwrite and self.exists(remote_fn):
       self.log("Remote file %s exists, skipping" % (remote_fn,))
@@ -295,6 +295,9 @@ class Task(backend.Task):
 
     if not remote_fn.startswith('/'):
       remote_fn = self.taskdir + '/' + remote_fn
+
+    remote_fn = remote_fn.replace('~', self.homedir)
+    self.log('uploading ' + local_fn + ' to ' + remote_fn)
 
     local_fn = os.path.abspath(local_fn)
     self._run_raw("cp -R %s %s" % (local_fn, remote_fn))
