@@ -106,7 +106,6 @@ class Task(backend.Task):
       self.log("reusing previous initialized state")
     else:
       self.log("running install script")
-      self._mount_efs()
 
       # bin/bash needed to make self-executable or use with UserData
       self.install_script = '#!/bin/bash\n' + self.install_script
@@ -115,6 +114,7 @@ class Task(backend.Task):
       self.run('bash -e install.sh')  # fail on errors
       assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
 
+    self._mount_efs()
     self.connect_instructions = f"""
     To connect to {self.name}
 ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
