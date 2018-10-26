@@ -756,3 +756,75 @@ def lookup_instances(fragment, verbose=True, filter_by_key=True):
       continue
     filtered_instance_list.append(instance)
   return filtered_instance_list
+
+def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
+    """
+    args:
+      spot_price: default is $26 which is right above p3.16xlarge on demand price
+      expiration_mins: this request only valid for this many mins from now
+    """
+    ec2c = get_ec2_client()
+
+    num_tasks = launch_specs['MinCount'] or 1
+    if 'MinCount' in launch_specs: del launch_specs['MinCount']
+    if 'MaxCount' in launch_specs: del launch_specs['MaxCount']
+    if 'TagSpecifications' in launch_specs: 
+      try: tags = launch_specs['TagSpecifications'][0]['Tags']
+      except: pass
+      del launch_specs['TagSpecifications']
+
+    import pytz      # datetime is not timezone aware, use pytz to fix
+    import datetime as dt
+    now = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
+
+    spot_args = {}
+    spot_args['LaunchSpecification'] = launch_specs
+    spot_args['SpotPrice'] = str(spot_price)
+    spot_args['InstanceCount'] = num_tasks
+    spot_args['ValidUntil'] = now + dt.timedelta(minutes=expiration_mins)
+    
+    try:
+      spot_requests = ec2c.request_spot_instances(**spot_args)
+    except Exception as e:
+      assert False, f"Spot instance request failed (out of capacity?), error was {e}"
+      
+    spot_requests = spot_requests['SpotInstanceRequests']
+    instance_ids = wait_on_fulfillment(ec2c, spot_requests)
+    
+    print('Instances fullfilled...')
+    ec2 = get_ec2_resource()
+    instances = list(ec2.instances.filter(Filters=[{'Name': 'instance-id', 'Values': list(filter(None, instance_ids))}]))
+
+    if not all(instance_ids):
+      for i in instances: 
+        i.terminate()
+      raise RuntimeError('Failed to create spot instances:', instance_ids)
+
+    if tags:
+      for i in instances:
+          i.create_tags(Tags=tags)
+
+    return instances
+
+
+def wait_on_fulfillment(ec2c, reqs):
+    def get_instance_id(req):
+      while req['State'] != 'active':
+          print('Waiting on spot fullfillment...')
+          time.sleep(5)
+          reqs = ec2c.describe_spot_instance_requests(Filters=[{'Name': 'spot-instance-request-id', 'Values': [req['SpotInstanceRequestId']]}])
+          if not reqs['SpotInstanceRequests']:
+            print(f"SpotInstanceRequest for {req['SpotInstanceRequestId']} not found")
+            continue
+          req = reqs['SpotInstanceRequests'][0]
+          req_status = req['Status']
+          if req_status['Code'] not in ['pending-evaluation', 'pending-fulfillment', 'fulfilled']:
+              print('Spot instance request failed:', req_status['Message'])
+              print('Cancelling request. Please try again or use on demand.')
+              ec2c.cancel_spot_instance_requests(SpotInstanceRequestIds=[req['SpotInstanceRequestId']])
+              print(req)
+              return None
+      instance_id = req['InstanceId']
+      print('Fulfillment completed. InstanceId:', instance_id)
+      return instance_id
+    return [get_instance_id(req) for req in reqs]
