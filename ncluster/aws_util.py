@@ -604,11 +604,23 @@ def call_with_retries(method, debug_string='',
 
 
 def get_ec2_resource():
-  return get_session().resource('ec2')
+  try:
+    client = get_session().resource('ec2')
+  except Exception as e:
+    print(f"Failed with error '{e}'")
+    print("To specify Virginia region, do 'export AWS_DEFAULT_REGION=us-east-1'")
+    sys.exit()
+  return client
 
 
 def get_ec2_client():
-  return get_session().client('ec2')
+  try:
+    client = get_session().client('ec2')
+  except Exception as e:
+    print(f"Failed with error '{e}'")
+    print("To specify Virginia region, do 'export AWS_DEFAULT_REGION=us-east-1'")
+    sys.exit()
+  return client
 
 
 def get_efs_client():
