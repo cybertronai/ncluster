@@ -648,6 +648,7 @@ def make_task(
         preemptible=None,
         logging_task: backend.Task = None,
         create_resources=True,
+        spot=False
 ) -> Task:
   """
   Create task on AWS.
@@ -784,7 +785,10 @@ def make_task(
 
     instances = []
     try:
-      instances = ec2.create_instances(**args)
+      if spot:
+        instances = u.create_spot_instances(args)
+      else:
+        instances = ec2.create_instances(**args)
     except Exception as e:
       log(f"Instance creation for {name} failed with ({e})")
       log(
