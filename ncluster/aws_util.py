@@ -346,10 +346,10 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
 
     seen_prefix, seen_username = parse_key_name(i.key_name)
     if prefix != seen_prefix:
-      print(f"Found {name} launched under {seen_prefix}, ignoring")
+      print(f"Found {name} launched under {seen_prefix}, ignoring because current ncluster prefix is {prefix}")
       continue
     if username != seen_username:
-      print(f"Found {name} launched by {seen_username}, ignoring")
+      print(f"Found {name} launched by {seen_username}, ignoring because current user is {username}")
       continue
 
     if instance_type:
