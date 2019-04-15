@@ -4,10 +4,11 @@ import os
 import re
 import sys
 import time
-from collections import Iterable
 from collections import OrderedDict
 import paramiko
 from operator import itemgetter
+
+from typing import Iterable, List
 
 
 import boto3
@@ -727,8 +728,8 @@ def instance_supports_placement_groups(instance_type: str):
   return regex.match(instance_type)
 
 
-def lookup_instances(fragment, verbose=True, filter_by_key=True):
-  """Returns ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
+def lookup_instances(fragment, verbose=True, filter_by_key=True) -> List:
+  """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
   most recent intance first). Optionally filters by key, only including instances launched with
   key_name matching current username.
 
@@ -768,6 +769,7 @@ def lookup_instances(fragment, verbose=True, filter_by_key=True):
       continue
     filtered_instance_list.append(instance)
   return filtered_instance_list
+
 
 def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
     """
