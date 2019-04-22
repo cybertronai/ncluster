@@ -16,8 +16,8 @@ from . import util
 
 TASKDIR_ROOT = '/tmp/ncluster/task'
 SCRATCH_ROOT = '/tmp/ncluster/scratch'
-LOGDIR_ROOT = os.environ[
-                'HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
+#LOGDIR_ROOT = os.environ['HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
+DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 
 
 # todo: tmux session names are backwards from AWS job names (runname-jobname)
@@ -374,7 +374,7 @@ class Task(backend.Task):
     run_name = ncluster_globals.get_run_for_task(self)
     self.log("Creating logdir for run "+run_name)
     logdir_root = ncluster_globals.LOGDIR_ROOT
-    assert logdir_root
+    assert logdir_root, "LOGDIR_ROOT not set, make sure you have called ncluster.set_backend()"
 
     self.run(f'mkdir -p {logdir_root}')
     find_command = f'find {logdir_root} -maxdepth 1 -type d'

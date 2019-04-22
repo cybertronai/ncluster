@@ -10,12 +10,12 @@ _backend: type(backend) = backend
 
 
 def get_logdir_root() -> str:
-  return _backend.LOGDIR_ROOT
+  return ncluster_globals.LOGDIR_ROOT
 
 
 def set_logdir_root(logdir_root):
   """Globally changes logdir root for all runs."""
-  _backend.LOGDIR_ROOT = logdir_root
+  ncluster_globals.LOGDIR_ROOT = logdir_root
 
 
 def set_backend(backend_name: str):
@@ -30,7 +30,9 @@ def set_backend(backend_name: str):
     _backend = local_backend
   else:
     assert False, f"Unknown backend {backend_name}"
-  ncluster_globals.LOGDIR_ROOT = _backend.LOGDIR_ROOT
+
+  # take default value for logdir root from backend
+  ncluster_globals.LOGDIR_ROOT = _backend.DEFAULT_LOGDIR_ROOT
 
 
 def use_aws():

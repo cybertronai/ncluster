@@ -24,7 +24,9 @@ from . import util
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
 NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region
-LOGDIR_ROOT = '/ncluster/runs'
+
+# default value of logdir root for this backend (can override with set_logdir_root)
+DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 
 # some image which is fast to load, to use for quick runs
 GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
@@ -551,7 +553,7 @@ tmux a
     run_name = ncluster_globals.get_run_for_task(self)
     self.log("Creating logdir for run " + run_name)
     logdir_root = ncluster_globals.LOGDIR_ROOT
-    assert logdir_root
+    assert logdir_root, "LOGDIR_ROOT not set, make sure you have called ncluster.set_backend()"
 
     self.run(f'mkdir -p {logdir_root}')
     find_command = f'find {logdir_root} -maxdepth 1 -type d'
