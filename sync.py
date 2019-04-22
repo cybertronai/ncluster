@@ -24,6 +24,7 @@ parser = argparse.ArgumentParser(description='sync')
 parser.add_argument('-v', '--verbose', action='count', dest='verbosity',
                     default=0, help='Set verbosity.')
 parser.add_argument('-n', '--name', type=str, default='', help="name of instance to sync with")
+parser.add_argument('-t', '--target', type=str, default='.', help="which directory to sync to (default .)")
 args = parser.parse_args()
 
 logger = logging.getLogger()
@@ -129,7 +130,7 @@ class Sync(object):
 
 
 def main():
-  sync = [Sync(source='.', dest='.', copy_links=False), ]
+  sync = [Sync(source='.', dest=args.target, copy_links=False), ]
 
   # obtain ssh
   resyncd = Resyncd('asdf', sync)
