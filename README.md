@@ -13,8 +13,8 @@ task.download('out')
 Install pip, tmux, Python 3.6 (see below), then
 
 ```
-pip install -r https://raw.githubusercontent.com/diux-dev/ncluster/master/requirements.txt
-pip install ncluster
+pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requirements.txt
+pip install -U ncluster
 ```
 
 ### Extra
