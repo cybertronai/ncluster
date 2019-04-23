@@ -367,7 +367,7 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
       return result[0]
 
 
-def lookup_instances(fragment, verbose=True, filter_by_key=False, include_stoppped=False) -> List:
+def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=['running']) -> List:
   """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
   most recent intance first). Optionally filters by key, only including instances launched with
   key_name matching current username.
@@ -390,9 +390,6 @@ def lookup_instances(fragment, verbose=True, filter_by_key=False, include_stoppp
   assert is_good_response(response)
 
   instance_list = []
-  valid_states = ['running']
-  if include_stoppped:
-    valid_states.extend(['stopped'])
   for instance in ec2.instances.all():
     if instance.state['Name'] not in valid_states:
       continue

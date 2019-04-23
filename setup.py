@@ -1,6 +1,7 @@
 from setuptools import setup
-setup(scripts=['ncluster/tools/aws_create_resources.py',
-               'ncluster/tools/aws_delete_resources.py',
-               'ncluster/tools/nsync',
-               'ncluster/tools/ncluster'
+ # aws_{create/delete}_resources is also lib, so have to keep it in nclustet
+setup(scripts=['ncluster/aws_create_resources.py',
+               'ncluster/aws_delete_resources.py',
+               'tools/nsync',
+               'tools/ncluster'
 ])
