@@ -367,6 +367,53 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
       return result[0]
 
 
+def lookup_instances(fragment, verbose=True, filter_by_key=False, include_stoppped=False) -> List:
+  """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
+  most recent intance first). Optionally filters by key, only including instances launched with
+  key_name matching current username.
+
+  args:
+    verbose: print information about all matching instances found
+
+    filter_by_key  if True, ignore instances that are not launched with current
+        user's default key
+  """
+
+  def vprint(*args):
+    if verbose:
+      print(*args)
+
+  region = get_region()
+  client = get_ec2_client()
+  ec2 = get_ec2_resource()
+  response = client.describe_instances()
+  assert is_good_response(response)
+
+  instance_list = []
+  valid_states = ['running']
+  if include_stoppped:
+    valid_states.extend(['stopped'])
+  for instance in ec2.instances.all():
+    if instance.state['Name'] not in valid_states:
+      continue
+
+    name = get_name(instance)
+    if (fragment in name or fragment in str(instance.public_ip_address) or
+            fragment in str(instance.id) or fragment in str(instance.private_ip_address)):
+      instance_list.append((util.toseconds(instance.launch_time), instance))
+
+  sorted_instance_list = reversed(sorted(instance_list, key=itemgetter(0)))
+  filtered_instance_list = []  # filter by key
+  vprint("Using region ", region)
+  for (ts, instance) in sorted_instance_list:
+    if filter_by_key and instance.key_name != get_keypair_name():
+      vprint(f"Got key {instance.key_name}, expected {get_keypair_name()}")
+      continue
+    filtered_instance_list.append(instance)
+  return filtered_instance_list
+
+
+
 def ssh_to_task(task) -> paramiko.SSHClient:
   """Create ssh connection to task's machine
 
@@ -726,49 +773,6 @@ def instance_supports_placement_groups(instance_type: str):
     "^(m4|m5|m5d|c3|c4|c5|c5d|cc2.8xlarge|cr1.8xlarge|r3|r4|r5|r5d|x1|x1e|z1d|d2|h1|hs1.8xlarge|i2|i3|i3.metal|f1|g2|g3|p2|p3).*$",
     re.IGNORECASE)
   return regex.match(instance_type)
-
-
-def lookup_instances(fragment, verbose=True, filter_by_key=True) -> List:
-  """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
-  most recent intance first). Optionally filters by key, only including instances launched with
-  key_name matching current username.
-
-  args:
-    verbose: print information about all matching instances found
-
-    filter_by_key  if True, ignore instances that are not launched with current
-        user's default key
-  """
-
-  def vprint(*args):
-    if verbose:
-      print(*args)
-
-  region = get_region()
-  client = get_ec2_client()
-  ec2 = get_ec2_resource()
-  response = client.describe_instances()
-  assert is_good_response(response)
-
-  instance_list = []
-  for instance in ec2.instances.all():
-    if instance.state['Name'] != 'running':
-      continue
-
-    name = get_name(instance)
-    if (fragment in name or fragment in str(instance.public_ip_address) or
-            fragment in str(instance.id) or fragment in str(instance.private_ip_address)):
-      instance_list.append((util.toseconds(instance.launch_time), instance))
-
-  sorted_instance_list = reversed(sorted(instance_list, key=itemgetter(0)))
-  filtered_instance_list = []  # filter by key
-  vprint("Using region ", region)
-  for (ts, instance) in sorted_instance_list:
-    if filter_by_key and instance.key_name != get_keypair_name():
-      vprint(f"Got key {instance.key_name}, expected {get_keypair_name()}")
-      continue
-    filtered_instance_list.append(instance)
-  return filtered_instance_list
 
 
 def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):

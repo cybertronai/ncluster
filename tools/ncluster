@@ -1,0 +1,166 @@
+#!/usr/bin/env python
+# tool to automate various AWS commands
+import sys
+
+# ssh, mosh, efs, ls, kill, reboot
+import time
+import pytz
+import datetime as dt
+
+from ncluster import aws_util as u
+
+# costs from https://aws.amazon.com/ec2/pricing/on-demand/
+costs ={'p3.2xlarge': 3.06,
+        'p3.8xlarge': 12.24,
+        'p3.16xlarge': 24.48,
+        'p3dn.24xlarge': 31.212,
+        'c5.18xlarge': 3.06,
+        'm4.2xlarge': 0.40 ,
+        'r5.large': 0.126}
+
+def toseconds(dt):
+  """Converts datetime object to seconds."""
+  return time.mktime(dt.utctimetuple())
+
+
+def ls(fragment=''):
+  instances = u.lookup_instances(fragment)
+  print('-'*80)
+  print(f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s}")
+  print('-'*80)
+  for instance in instances:
+    # current time in UTC zone (default AWS)
+    now_time = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
+    launch_time = instance.launch_time
+    elapsed_sec = toseconds(now_time) - toseconds(launch_time)
+    elapsed_hours = elapsed_sec / 3600
+    instance_type = instance.instance_type
+    if instance_type in costs:
+      cost = costs[instance_type]*elapsed_hours
+    else:
+      cost = -1
+    print(f"{u.get_name(instance):15s} {elapsed_sec/3600:10.1f} {cost:10.0f} {instance_type:>15s} {instance.public_ip_address:>15s}")
+
+def ssh(fragment=''):
+  instances = u.lookup_instances(fragment)
+  instance = instances[0]
+  print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
+
+  cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address}"
+  print(cmd)
+
+
+def kill(fragment=''):
+  instances = u.lookup_instances(fragment)
+  region = u.get_region()
+  for i in instances:
+    state = i.state['Name']
+    print(u.get_name(i), i.instance_type, i.key_name,
+          state if state=='stopped' else '')
+
+  answer = input("%d instances found, %s in %s? (y/N) " % (len(instances), 'kill', u.get_region()))
+
+  if answer.lower() == "y":
+    instance_ids = [i.id for i in instances]
+    #response = ec2_client.terminate_instances(InstanceIds=instance_ids)
+    response = None
+    print("terminating, got response: %s", response)
+  else:
+    print("Didn't get y, doing nothing")
+
+
+def stop(fragment=''):
+  pass
+  
+def mosh(fragment=''):
+  instances = u.lookup_instances(fragment)
+  instance = instances[0]
+  print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
+
+  cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' ubuntu@{instance.public_ip_address}"
+  print(cmd)
+
+def efs():
+  region = u.get_region()
+  efs_id = u.get_efs_dict()[u.get_prefix()]
+  dns = f"{efs_id}.efs.{region}.amazonaws.com"
+  print('sudo mkdir -p /ncluster')
+  print(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster")
+
+  print()
+  print()
+  
+  efs_client = u.get_efs_client()
+  response = efs_client.describe_file_systems()
+  assert u.is_good_response(response)
+
+  for efs_response in response['FileSystems']:
+    #  {'CreationTime': datetime.datetime(2017, 12, 19, 10, 3, 44, tzinfo=tzlocal()),
+    # 'CreationToken': '1513706624330134',
+    # 'Encrypted': False,
+    # 'FileSystemId': 'fs-0f95ab46',
+    # 'LifeCycleState': 'available',
+    # 'Name': 'nexus01',
+    # 'NumberOfMountTargets': 0,
+    # 'OwnerId': '316880547378',
+    # 'PerformanceMode': 'generalPurpose',
+    # 'SizeInBytes': {'Value': 6144}},
+    efs_id = efs_response['FileSystemId']
+    tags_response = efs_client.describe_tags(FileSystemId=efs_id)
+    assert u.is_good_response(tags_response)
+    key = u.get_name(tags_response.get('Tags', ''))
+    print("%-16s %-16s" %(efs_id, key))
+    print('-'*40)
+
+    # list mount points
+    response = efs_client.describe_mount_targets(FileSystemId=efs_id)
+    ec2 = u.get_ec2_resource()
+    if not response['MountTargets']:
+      print("<no mount targets>")
+    else:
+      for mount_response in response['MountTargets']:
+        subnet = ec2.Subnet(mount_response['SubnetId'])
+        zone = subnet.availability_zone
+        state = mount_response['LifeCycleState']
+        id = mount_response['MountTargetId']
+        ip = mount_response['IpAddress']
+        print('%-16s %-16s %-16s %-16s' %(zone, ip, id, state, ))
+
+
+
+def main():
+  print(f"Region ({u.get_region()}) user ({u.get_username()}) account ({u.get_account_number()})")
+  if len(sys.argv) < 2:
+    mode = 'ls'
+  else:
+    mode = sys.argv[1]
+    
+  if len(sys.argv) < 3:
+    fragment = ''
+  else:
+    fragment = sys.argv[2]
+
+  if mode == 'ls':
+    ls(fragment)
+  elif mode == 'ssh':
+    ssh(fragment)
+  elif mode == 'mosh':
+    mosh(fragment)
+  elif mode == 'kill':
+    kill(fragment)
+  elif mode == 'stop':
+    stop(fragment)
+
+  elif mode == 'efs':
+    efs()
+  elif mode == 'reboot':
+    task_fragment = sys.argv[2]
+    #    instance = u.get_instance(task_fragment)
+    #    print("Rebooting "+u.get_name(instance.tags))
+    #    instance.reboot()
+  else:
+    assert False, "Unknown mode " + mode
+
+
+if __name__ == '__main__':
+  main()
