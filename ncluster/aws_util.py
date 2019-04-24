@@ -372,12 +372,20 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
   most recent intance first). Optionally filters by key, only including instances launched with
   key_name matching current username.
 
+  If fragment is wrapped in single quotes like 'somemachine', it strips quotes and will try to match somemachine exactly
   args:
     verbose: print information about all matching instances found
 
     filter_by_key  if True, ignore instances that are not launched with current
         user's default key
   """
+
+  if fragment.startswith("'"):
+    assert fragment.endswith("'")
+    exact_match = True
+    fragment = fragment[1:-1]
+  else:
+    exact_match = False
 
   def vprint(*args):
     if verbose:
@@ -395,9 +403,13 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
       continue
 
     name = get_name(instance)
-    if (fragment in name or fragment in str(instance.public_ip_address) or
-            fragment in str(instance.id) or fragment in str(instance.private_ip_address)):
-      instance_list.append((util.toseconds(instance.launch_time), instance))
+    if exact_match:
+      if fragment == name:
+        instance_list.append((util.toseconds(instance.launch_time), instance))
+    else:
+      if (fragment in name or fragment in str(instance.public_ip_address) or
+         fragment in str(instance.id) or fragment in str(instance.private_ip_address)):
+        instance_list.append((util.toseconds(instance.launch_time), instance))
 
   sorted_instance_list = reversed(sorted(instance_list, key=itemgetter(0)))
   filtered_instance_list = []  # filter by key
