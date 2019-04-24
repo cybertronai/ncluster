@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # tool to automate various AWS commands
+import os
 import sys
 
 # ssh, mosh, efs, ls, kill, reboot
@@ -70,11 +71,18 @@ def etchosts():
     print(f"{ip} {name}")
 
 
+def _user_keypair_check(instance):
+  launching_user = instance.key_name[len(u.get_prefix())+1:]
+  current_user = os.environ['USER']
+  assert launching_user == current_user, f"Set USER={launching_user} to connect to this machine"
+
 def ssh(fragment=''):
   instances = u.lookup_instances(fragment)
   instance = instances[0]
-  print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
+  print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
+        f"launched by {instance.key_name}")
 
+  _user_keypair_check(instance)
   cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address}"
   print(cmd)
 
@@ -133,6 +141,7 @@ def start(fragment=''):
 def mosh(fragment=''):
   instances = u.lookup_instances(fragment)
   instance = instances[0]
+  _user_keypair_check(instance)
   print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
 
   cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' ubuntu@{instance.public_ip_address}"
