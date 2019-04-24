@@ -30,13 +30,15 @@ def toseconds(dt_):
 
 
 def ls(fragment=''):
+  print(f"Dashboard at https://console.aws.amazon.com/ec2/v2/home?region={u.get_region()}")
+  
   stopped_instances = u.lookup_instances(fragment, valid_states=['stopped'])
   stopped_names = (u.get_name(i) for i in stopped_instances)
   print("ignored stopped instances: ", ", ".join(stopped_names))
   
   instances = u.lookup_instances(fragment)
   print('-' * 80)
-  print(f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s} {'owner':>15s}")
+  print(f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s} {'key/owner':>15s}")
   print('-' * 80)
   for instance in instances[::-1]:
     # current time in UTC zone (default AWS)
@@ -78,7 +80,12 @@ def kill(fragment='', stop_instead_of_kill=False):
     print(u.get_name(i), i.instance_type, i.key_name,
           state if state == 'stopped' else '')
 
-  answer = input("%d instances found, %s in %s? (y/N) " % (len(instances), 'kill', u.get_region()))
+  action = ('stopping' if stop_instead_of_kill else 'terminating')
+  if not instances:
+    print("no instances found, quitting")
+    return
+  
+  answer = input(f"{len(instances)} instances found, {action} in {u.get_region()}? (y/N) ")
 
   ec2_client = u.get_ec2_client()
   if answer.lower() == "y":
@@ -88,15 +95,29 @@ def kill(fragment='', stop_instead_of_kill=False):
     else:
       response = ec2_client.terminate_instances(InstanceIds=instance_ids)
 
-    print(f"{'stopping' if stop_instead_of_kill else 'terminating'}")
     assert u.is_good_response(response), response
+    print(f"{action} success")
   else:
     print("Didn't get y, doing nothing")
 
 
-def stop(fragment=''):
-  print("stopping ", fragment)
-  pass
+def start(fragment='', stop_instead_of_kill=False):
+  instances = u.lookup_instances(fragment, valid_states=['stopped'])
+  for i in instances:
+    state = i.state['Name']
+    print(u.get_name(i), i.instance_type, i.key_name)
+
+  answer = input(f"{len(instances)} instances found, start in {u.get_region()}? (y/N) ")
+
+  ec2_client = u.get_ec2_client()
+  if answer.lower() == "y":
+    for i in instances:
+      print(f"starting {u.get_name(i)}")
+      i.start()
+  else:
+    print("Didn't get y, doing nothing")
+
+
 
 
 def mosh(fragment=''):
@@ -177,6 +198,8 @@ def main():
     kill(fragment)
   elif mode == 'stop':
     kill(fragment, stop_instead_of_kill=True)
+  elif mode == 'start':
+    start(fragment)
   elif mode == 'efs':
     efs()
   elif mode == 'reboot':
