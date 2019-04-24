@@ -10,9 +10,12 @@ import datetime as dt
 from ncluster import aws_util as u
 
 VERBOSE = False
+
+
 def vprint(*args):
   if VERBOSE:
     print(*args)
+
 
 # costs from https://aws.amazon.com/ec2/pricing/on-demand/
 costs = {'p3.2xlarge': 3.06,
@@ -30,15 +33,17 @@ def toseconds(dt_):
 
 
 def ls(fragment=''):
-  print(f"Dashboard at https://console.aws.amazon.com/ec2/v2/home?region={u.get_region()}")
-  
+  print(f"https://console.aws.amazon.com/ec2/v2/home?region={u.get_region()}")
+
   stopped_instances = u.lookup_instances(fragment, valid_states=['stopped'])
   stopped_names = (u.get_name(i) for i in stopped_instances)
   print("ignored stopped instances: ", ", ".join(stopped_names))
-  
+
   instances = u.lookup_instances(fragment)
   print('-' * 80)
-  print(f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s} {'key/owner':>15s}")
+  print(
+    f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s} "
+    f"{'key/owner':>15s}")
   print('-' * 80)
   for instance in instances[::-1]:
     # current time in UTC zone (default AWS)
@@ -53,6 +58,7 @@ def ls(fragment=''):
       cost = -1
     print(f"{u.get_name(instance):15s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
           f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s}")
+
 
 def etchosts():
   instances = u.lookup_instances()
@@ -84,7 +90,7 @@ def kill(fragment='', stop_instead_of_kill=False):
   if not instances:
     print("no instances found, quitting")
     return
-  
+
   answer = input(f"{len(instances)} instances found, {action} in {u.get_region()}? (y/N) ")
 
   ec2_client = u.get_ec2_client()
@@ -96,28 +102,32 @@ def kill(fragment='', stop_instead_of_kill=False):
       response = ec2_client.terminate_instances(InstanceIds=instance_ids)
 
     assert u.is_good_response(response), response
-    print(f"{action} success")
+    print(f"{action}: success")
   else:
     print("Didn't get y, doing nothing")
 
 
-def start(fragment='', stop_instead_of_kill=False):
+def start(fragment=''):
   instances = u.lookup_instances(fragment, valid_states=['stopped'])
   for i in instances:
-    state = i.state['Name']
     print(u.get_name(i), i.instance_type, i.key_name)
+
+  if not instances:
+    print("no stopped instances found, quitting")
+    return
 
   answer = input(f"{len(instances)} instances found, start in {u.get_region()}? (y/N) ")
 
-  ec2_client = u.get_ec2_client()
   if answer.lower() == "y":
     for i in instances:
       print(f"starting {u.get_name(i)}")
       i.start()
   else:
     print("Didn't get y, doing nothing")
+    return
 
-
+  print("Warning, need to manually mount efs on instance: ")
+  print_efs_mount_command()
 
 
 def mosh(fragment=''):
@@ -129,13 +139,16 @@ def mosh(fragment=''):
   print(cmd)
 
 
-def efs():
+def print_efs_mount_command():
   region = u.get_region()
   efs_id = u.get_efs_dict()[u.get_prefix()]
   dns = f"{efs_id}.efs.{region}.amazonaws.com"
   print('sudo mkdir -p /ncluster')
   print(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster")
 
+
+def efs():
+  print_efs_mount_command()
   print()
   print()
 
