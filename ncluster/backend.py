@@ -231,6 +231,11 @@ class Job:
     See Task for documentation of args/kwargs."""
     return self._non_blocking_wrapper("run_with_output", *args, **kwargs)
 
+  
+  def rsync(self, *args, **kwargs):
+    """See :py:func:`backend.Task.rsync`"""
+    return self._non_blocking_wrapper("rsync", *args, **kwargs)
+
   def upload(self, *args, **kwargs):
     """See :py:func:`backend.Task.upload`"""
     return self._non_blocking_wrapper("upload", *args, **kwargs)
