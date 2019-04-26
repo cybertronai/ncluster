@@ -37,7 +37,7 @@ def ls(fragment=''):
   print(f"https://console.aws.amazon.com/ec2/v2/home?region={u.get_region()}")
 
   stopped_instances = u.lookup_instances(fragment, valid_states=['stopped'])
-  stopped_names = (u.get_name(i) for i in stopped_instances)
+  stopped_names = list(u.get_name(i) for i in stopped_instances)
   if stopped_names:
     print("ignored stopped instances: ", ", ".join(stopped_names))
 
