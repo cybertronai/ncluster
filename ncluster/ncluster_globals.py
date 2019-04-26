@@ -25,6 +25,18 @@ run_logdir_dict: Dict[str, str] = {}
 
 tasks_seen: List[backend.Task] = []  # list of all tasks created
 
+enforce_placement_group_val = False
+
+
+def enforce_placement_group():
+  """Enforces all tasks to be launched into placement group."""
+  global enforce_placement_group_val
+  enforce_placement_group_val = True
+
+
+def is_enforced_placement_group():
+  return enforce_placement_group_val
+
 
 def auto_assign_task_name_if_needed(name, instance_type='', image_name='',
                                     tasks=1):
@@ -79,7 +91,8 @@ def register_task(task: Any, run_name: str):
   run_task_dict.setdefault(run_name, []).append(task)
 
 
-def register_run(run: backend.Run, run_name) -> None:
+def register_run(run: backend.Run, run_name: str) -> None:
+  print(f"Registering run {run_name}")
   assert run_name not in run_dict
   assert run_name  # empty name reserved to mean no run
   run_dict[run_name] = run
@@ -108,10 +121,6 @@ def get_logdir(run_name: str):
   if not run_name:
     return '/tmp'
   return run_logdir_dict.get(run_name, '')
-
-
-def get_run_object(run_name: str) -> backend.Run:
-  return run_dict.get(run_name, None)
 
 
 def set_logdir(run_name, logdir):
