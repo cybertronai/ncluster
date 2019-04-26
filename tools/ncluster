@@ -38,7 +38,8 @@ def ls(fragment=''):
 
   stopped_instances = u.lookup_instances(fragment, valid_states=['stopped'])
   stopped_names = (u.get_name(i) for i in stopped_instances)
-  print("ignored stopped instances: ", ", ".join(stopped_names))
+  if stopped_names:
+    print("ignored stopped instances: ", ", ".join(stopped_names))
 
   instances = u.lookup_instances(fragment)
   print('-' * 80)
