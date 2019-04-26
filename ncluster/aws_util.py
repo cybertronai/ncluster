@@ -786,6 +786,16 @@ def instance_supports_placement_groups(instance_type: str):
   return regex.match(instance_type)
 
 
+def instance_supports_100gbps_network(instance_type: str) -> bool:
+  assert_is_valid_instance(instance_type)
+  return instance_type == 'p3dn.24xlarge'
+
+
+def assert_is_valid_instance(instance_type: str):
+  # TODO(y): check that instance type is correct to catch common errors
+  pass
+
+
 def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
     """
     args:
