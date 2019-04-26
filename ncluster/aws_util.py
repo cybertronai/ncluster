@@ -407,8 +407,10 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
       if fragment == name:
         instance_list.append((util.toseconds(instance.launch_time), instance))
     else:
-      if (fragment in name or fragment in str(instance.public_ip_address) or
-         fragment in str(instance.id) or fragment in str(instance.private_ip_address)):
+      if fragment in name:
+        # the following can be re-enabled for broader match
+        # or fragment in str(instance.public_ip_address) or
+        # fragment in str(instance.id) or fragment in str(instance.private_ip_address)):
         instance_list.append((util.toseconds(instance.launch_time), instance))
 
   sorted_instance_list = reversed(sorted(instance_list, key=itemgetter(0)))
