@@ -31,6 +31,8 @@ DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 # some image which is fast to load, to use for quick runs
 GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
 
+def check_cmd(cmd):
+  assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
 
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
@@ -236,7 +238,7 @@ tmux a
     self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
 
     cmd = util.shell_strip_comment(cmd)
-    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
+    check_cmd(cmd)
 
     # modify command to dump shell success status into file
     self.file_write(self._cmd_fn, cmd + '\n')
@@ -327,8 +329,7 @@ tmux a
     self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
 
     cmd = util.shell_strip_comment(cmd)
-    assert '&' not in cmd, f"cmd {cmd} contains &, that breaks things"
-
+    check_cmd(cmd)
     # modify command to dump shell success status into file
     self.file_write(self._cmd_fn, cmd + '\n')
 
