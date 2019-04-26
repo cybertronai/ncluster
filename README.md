@@ -1,5 +1,5 @@
 # ncluster
-By Yaroslav Bulatov and Andrew Shaw
+By Yaroslav Bulatov, Andrew Shaw, Ben Mann
 
 ```
 import ncluster
