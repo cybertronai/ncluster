@@ -605,8 +605,8 @@ class Run(backend.Run):
     self.name = name
     self.jobs = jobs
     self.kwargs = kwargs
-    util.log(f"Choosing placement_group for run {name}")
     self.placement_group = name + '-' + util.random_id()
+    util.log(f"Choosing placement_group for run {name} to be {self.placement_group}")
 
   @property
   def logdir(self):
@@ -698,6 +698,10 @@ def make_task(
 
   run: Run = ncluster_globals.get_run_object(run_name)
   placement_group = ''
+  if ncluster_globals.is_enforced_placement_group():
+    assert u.instance_supports_placement_groups(instance_type)
+    assert run
+
   if u.instance_supports_placement_groups(instance_type) and run:
     placement_group = run.placement_group
     log(f"Launching into placement_group group {placement_group}")
@@ -834,6 +838,10 @@ def make_job(
   Returns:
 
   """
+
+  assert u.instance_supports_placement_groups(instance_type), f"jobs supported only on instances that enable placement groups, current instance {instance_type} doesn't"
+  ncluster_globals.enforce_placement_group()
+
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
@@ -896,7 +904,7 @@ def make_job(
 
 def make_run(name) -> Run:
   run = Run(name)
-  ncluster_globals.register_run(name, run)
+  ncluster_globals.register_run(run, name)
   return run
 
 
