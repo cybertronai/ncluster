@@ -96,7 +96,7 @@ def ssh(fragment=''):
 
 
 def kill(fragment='', stop_instead_of_kill=False):
-  instances = u.lookup_instances(fragment)
+  instances = u.lookup_instances(fragment, valid_states=['running', 'stopped'])
   for i in instances:
     state = i.state['Name']
     print(u.get_name(i), i.instance_type, i.key_name,
