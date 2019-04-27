@@ -21,6 +21,20 @@ from . import aws_util as u
 from . import backend
 from . import util
 
+# costs from https://aws.amazon.com/ec2/pricing/on-demand/
+_RAW_INSTANCE_INFO = [
+    ['p3.2xlarge', 3.06, 1, 16],
+    ['p3.8xlarge', 12.24, 4, 16],
+    ['p3.16xlarge', 24.48, 8, 16],
+    ['p3dn.24xlarge', 31.212, 8, 32],
+    ['c5.18xlarge', 3.06, None, None],
+    ['m4.2xlarge', 0.40, None, None],
+    ['r5.large', 0.126, None, None],
+]
+_RAW_HEADERS= ['cost', 'gpus', 'gpu_mem_gb']
+
+INSTANCE_INFO = dict([(x[0], dict(zip(_RAW_HEADERS, x[1:]))) for x in _RAW_INSTANCE_INFO])
+
 TMPDIR = '/tmp/ncluster'  # location for temp files on launching machine
 AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation of AWS resources by multiple workers in parallel
 NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region

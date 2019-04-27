@@ -7,7 +7,9 @@ import sys
 import time
 
 import pytz
+
 from ncluster import aws_util as u
+from ncluster.aws_backend import INSTANCE_INFO
 
 VERBOSE = False
 
@@ -15,17 +17,6 @@ VERBOSE = False
 def vprint(*args):
   if VERBOSE:
     print(*args)
-
-
-# costs from https://aws.amazon.com/ec2/pricing/on-demand/
-costs = {'p3.2xlarge': 3.06,
-         'p3.8xlarge': 12.24,
-         'p3.16xlarge': 24.48,
-         'p3dn.24xlarge': 31.212,
-         'c5.18xlarge': 3.06,
-         'm4.2xlarge': 0.40,
-         'r5.large': 0.126}
-
 
 def toseconds(dt_):
   """Converts datetime object to seconds."""
@@ -53,8 +44,8 @@ def ls(fragment=''):
     elapsed_sec = toseconds(now_time) - toseconds(launch_time)
     elapsed_hours = elapsed_sec / 3600
     instance_type = instance.instance_type
-    if instance_type in costs:
-      cost = costs[instance_type] * elapsed_hours
+    if instance_type in INSTANCE_INFO:
+      cost = INSTANCE_INFO[instance_type]['cost'] * elapsed_hours
     else:
       cost = -1
     print(f"{u.get_name(instance):15s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
