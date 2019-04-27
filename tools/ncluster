@@ -100,7 +100,7 @@ def ssh(fragment=''):
 
   _user_keypair_check(instance)
   cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address}"
-  print(cmd)
+  os.system(cmd)
 
 
 def kill(fragment='', stop_instead_of_kill=False):
@@ -161,7 +161,7 @@ def mosh(fragment=''):
   print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
 
   cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' ubuntu@{instance.public_ip_address}"
-  print(cmd)
+  os.system(cmd)
 
 
 def print_efs_mount_command():
