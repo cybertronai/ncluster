@@ -73,7 +73,10 @@ class Resyncd(object):
   def resync(self):
     procs = []
     for sync in self.sync:
-      instance = u.lookup_instances(args.name, verbose=False)[0]
+      instances = u.lookup_instances(args.name, verbose=False)
+      assert instances, f"Couldn't find instance {args.name}"
+      instance = instances[0]
+
       print("Syncing with ", u.get_name(instance))
 
       command = sync.command(instance)
