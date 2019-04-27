@@ -142,3 +142,15 @@ def create_run_if_needed(run_name, run_creation_callback) -> backend.Run:
     return run_dict[run_name]
   run = run_creation_callback(run_name)
   return run
+
+
+_should_skip_setup = False
+
+
+def set_should_skip_setup(val):
+  global _should_skip_setup
+  _should_skip_setup = val
+
+
+def should_skip_setup():
+  return _should_skip_setup

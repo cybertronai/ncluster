@@ -34,6 +34,7 @@ GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
 def check_cmd(cmd):
   assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
 
+
 class Task(backend.Task):
   """AWS task is initialized with an AWS instance and handles initialization,
   creation of SSH session, shutdown"""
@@ -102,6 +103,8 @@ class Task(backend.Task):
 
     self.ssh_client = u.ssh_to_task(self)
     self._setup_tmux()
+
+    # can't skip this setup because remote_scratch location changes each rerun
     self._run_raw('mkdir -p ' + self.remote_scratch)
 
     self._can_run = True
@@ -116,9 +119,13 @@ class Task(backend.Task):
       self.install_script += f'\necho ok > {self._initialized_fn}\n'
       self.file_write('install.sh', util.shell_add_echo(self.install_script))
       self.run('bash -e install.sh')  # fail on errors
-      assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
 
-    self._mount_efs()
+      if not ncluster_globals.should_skip_setup():
+        assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
+
+    if not ncluster_globals.should_skip_setup():
+      self._mount_efs()
+
     self.connect_instructions = f"""
     To connect to {self.name}
 ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
@@ -150,14 +157,15 @@ tmux a
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
-    if not util.is_set("NCLUSTER_NOKILL_TMUX"):
+    if not util.is_set("NCLUSTER_NOKILL_TMUX") and not ncluster_globals.should_skip_setup():
       self._run_raw(f'tmux kill-session -t {self.tmux_session}',
                     ignore_errors=True)
     else:
       print(
-        "Warning, NCLUSTER_NOKILL_TMUX is on, make sure remote tmux prompt is available or things will hang")
+        "Warning, NCLUSTER_NOKILL_TMUX or skip_setup is set, make sure remote tmux prompt is available or things will hang")
 
-    self._run_raw(''.join(tmux_cmd))
+    if not ncluster_globals.should_skip_setup():
+      self._run_raw(''.join(tmux_cmd))
 
     self._can_run = True
 
@@ -569,7 +577,9 @@ tmux a
     logdir_root = ncluster_globals.LOGDIR_ROOT
     assert logdir_root, "LOGDIR_ROOT not set, make sure you have called ncluster.set_backend()"
 
-    self.run(f'mkdir -p {logdir_root}')
+    # TODO(y): below can be removed, since we are mkdir -p later
+    if not ncluster_globals.should_skip_setup():
+      self.run(f'mkdir -p {logdir_root}')
     find_command = f'find {logdir_root} -maxdepth 1 -type d'
 
     stdout, stderr = self.run_with_output(find_command)
@@ -674,6 +684,7 @@ def make_task(
 
 
   Args:
+    spot: try to reserve spot instance
     disk_size: default size of root disk, in GBs
     create_resources: whether this task will handle resource creation
     name: see ncluster.make_task
@@ -683,6 +694,7 @@ def make_task(
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
     preemptible: use cheaper preemptible/spot instances
     logging_task: partially initialized Task object, use it for logging
+    skip_setup: skips various setup calls like mounting EFS/setup, can use it when job has already been created
 
   Returns:
 
@@ -838,9 +850,11 @@ def make_job(
         instance_type: str = '',
         image_name: str = '',
         create_resources=True,
+        skip_setup=False,
         **kwargs) -> Job:
   """
   Args:
+    skip_setup: True to skip setup
     create_resources: if True, will create resources if necessary
     name: see backend.make_task
     run_name: see backend.make_task
@@ -853,6 +867,7 @@ def make_job(
 
   """
 
+  ncluster_globals.set_should_skip_setup(skip_setup)
   assert u.instance_supports_placement_groups(instance_type), f"jobs supported only on instances that enable placement groups, current instance {instance_type} doesn't"
   ncluster_globals.enforce_placement_group()
 
