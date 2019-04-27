@@ -65,6 +65,7 @@ def ls(fragment=''):
   spot_requests = []
   for request in client.describe_spot_instance_requests()['SpotInstanceRequests']:
     state = request['State']
+    # TODO(y) also ignore state == 'fulfilled'?
     if state == 'cancelled' or state == 'closed' or state == 'active':
       continue
     
@@ -258,10 +259,8 @@ def main():
   if mode == 'ls':
     ls(fragment)
   elif mode == 'ssh':
-    ls(fragment)
     ssh(fragment)
   elif mode == 'mosh':
-    ls(fragment)
     mosh(fragment)
   elif mode == 'kill':
     kill(fragment)
