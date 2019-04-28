@@ -24,6 +24,7 @@ def toseconds(dt_):
 
 
 def ls(fragment=''):
+  """List running instances"""
   print(f"https://console.aws.amazon.com/ec2/v2/home?region={u.get_region()}")
 
   stopped_instances = u.lookup_instances(fragment, valid_states=['stopped'])
@@ -68,6 +69,7 @@ def ls(fragment=''):
 
 
 def etchosts():
+  """Copy/pastable /etc/hosts file"""
   instances = u.lookup_instances()
   instance_tuples = [(u.get_name(i), i.public_ip_address) for i in instances]
   print('-' * 80)
@@ -84,6 +86,7 @@ def _user_keypair_check(instance):
 
 
 def ssh(fragment=''):
+  """SSH into the instace with the given prefix."""
   instances = u.lookup_instances(fragment)
   instance = instances[0]
   print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
@@ -165,7 +168,7 @@ def print_efs_mount_command():
   print(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster")
 
 
-def efs():
+def efs(_):
   print_efs_mount_command()
   print()
   print()
@@ -207,17 +210,15 @@ def efs():
         print('%-16s %-16s %-16s %-16s' % (zone, ip, id_, state,))
 
 
-def terminate_tmux():
-  """
-  Script to clean-up tmux sessions
-  """
+def terminate_tmux(_):
+  """Script to clean-up tmux sessions."""
 
   def run_shell(cmd):
     """Runs shell command, returns list of outputted lines
     with newlines stripped"""
     #  print(cmd)
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    (stdout, stderr) = p.communicate()
+    (stdout, _) = p.communicate()
     stdout = stdout.decode('ascii')
     lines = stdout.split('\n')
     stripped_lines = []
@@ -236,6 +237,18 @@ def terminate_tmux():
     print("Killing "+session_name)
     run_shell('tmux kill-session -t ' + session_name)
 
+MODES = {
+  'ls': ls,
+  'ssh': ssh,
+  'mosh': mosh,
+  'kill': kill,
+  'stop': lambda x: kill(x, stop_instead_of_kill=True),
+  'start': start,
+  'efs': efs,
+  #'reboot': reboot,
+  '/etc/hosts': etchosts,
+  'terminate_tmux': terminate_tmux,
+}
 
 def main():
   print(f"Region ({u.get_region()}) $USER ({u.get_username()}) account ({u.get_account_number()})")
@@ -249,32 +262,14 @@ def main():
   else:
     fragment = sys.argv[2]
 
-  if mode == 'ls':
-    ls(fragment)
-  elif mode == 'ssh':
-    ssh(fragment)
-  elif mode == 'mosh':
-    mosh(fragment)
-  elif mode == 'kill':
-    kill(fragment)
-  elif mode == 'stop':
-    kill(fragment, stop_instead_of_kill=True)
-  elif mode == 'start':
-    start(fragment)
-  elif mode == 'efs':
-    efs()
-  elif mode == 'reboot':
-    #    instance.reboot()
-    pass
-
-  elif mode == '/etc/hosts':
-    etchosts()
-  elif mode == 'terminate_tmux':
-    terminate_tmux()
-    
-  else:
-    assert False, "Unknown mode " + mode
-
+  if mode == 'help':
+    for k, v in MODES.items():
+      if v.__doc__:
+        print(f'{k}\t{v.__doc__}')
+      else:
+        print(k)
+    return
+  MODES[mode](fragment)
 
 if __name__ == '__main__':
   main()
