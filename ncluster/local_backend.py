@@ -276,6 +276,9 @@ class Task(backend.Task):
         self.log(f"command ({cmd}) failed.")
         assert False, "_run_raw failed"
 
+  def rsync(self, local_fn, remote_fn=None):
+    self.upload(local_fn, remote_fn)
+  
   def upload(self, local_fn, remote_fn=None, dont_overwrite=False):
     """Uploads file to remote instance. If location not specified, dumps it
     into default directory. Creates missing directories in path name."""
@@ -439,6 +442,11 @@ class Run:
     """Runs command on every job in the run."""
     for job in self.jobs:
       job.upload(*args, **kwargs)
+
+  def rsync(self, *args, **kwargs):
+    """Runs command on every job in the run."""
+    for job in self.jobs:
+      job.rsync(*args, **kwargs)
 
   def make_job(self, name='', **kwargs):
     return make_job(name+'.'+self.name, run_name=self.name, **kwargs)
