@@ -68,7 +68,7 @@ def ls(fragment=''):
    #   client.cancel_spot_instance_requests(SpotInstanceRequestIds=[request['SpotInstanceRequestId']])
 
 
-def etchosts():
+def etchosts(_):
   """Copy/pastable /etc/hosts file"""
   instances = u.lookup_instances()
   instance_tuples = [(u.get_name(i), i.public_ip_address) for i in instances]
@@ -247,6 +247,7 @@ MODES = {
   'efs': efs,
   #'reboot': reboot,
   '/etc/hosts': etchosts,
+  'hosts': etchosts,
   'terminate_tmux': terminate_tmux,
 }
 
