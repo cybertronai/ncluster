@@ -108,8 +108,35 @@ def ssh(fragment=''):
   os.system(cmd)
 
 
-def kill(fragment='', stop_instead_of_kill=False):
+def kill(fragment=''):
   instances = u.lookup_instances(fragment, valid_states=['running', 'stopped'])
+  for i in instances:
+    state = i.state['Name']
+    print(u.get_name(i), i.instance_type, i.key_name,
+          state if state == 'stopped' else '')
+
+  action = ('stopping' if stop_instead_of_kill else 'terminating')
+  if not _check_instance_found(instances, fragment):
+    return
+
+  answer = input(f"{len(instances)} instances found, {action} in {u.get_region()}? (y/N) ")
+
+  ec2_client = u.get_ec2_client()
+  if answer.lower() == "y":
+    instance_ids = [i.id for i in instances]
+    if stop_instead_of_kill:
+      response = ec2_client.stop_instances(InstanceIds=instance_ids)
+    else:
+      response = ec2_client.terminate_instances(InstanceIds=instance_ids)
+
+    assert u.is_good_response(response), response
+    print(f"{action}: success")
+  else:
+    print("Didn't get y, doing nothing")
+
+
+def stop(fragment=''):
+  instances = u.lookup_instances(fragment, valid_states=['running'])
   for i in instances:
     state = i.state['Name']
     print(u.get_name(i), i.instance_type, i.key_name,
@@ -253,10 +280,9 @@ MODES = {
   'ssh': ssh,
   'mosh': mosh,
   'kill': kill,
-  'stop': lambda x: kill(x, stop_instead_of_kill=True),
+  'stop': stop,
   'start': start,
   'efs': efs,
-  #'reboot': reboot,
   '/etc/hosts': etchosts,
   'hosts': etchosts,
   'terminate_tmux': terminate_tmux,
