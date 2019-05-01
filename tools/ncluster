@@ -103,7 +103,7 @@ def ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address} tmux attach"
+  cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address} tmux attach"
   print(cmd)
   os.system(cmd)
 
