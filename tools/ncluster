@@ -103,7 +103,7 @@ def ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address}"
+  cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address} tmux attach"
   print(cmd)
   os.system(cmd)
 
@@ -187,7 +187,7 @@ def mosh(fragment=''):
   _user_keypair_check(instance)
   print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
 
-  cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' ubuntu@{instance.public_ip_address}"
+  cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' ubuntu@{instance.public_ip_address} tmux attach"
   print(cmd)
   os.system(cmd)
 
