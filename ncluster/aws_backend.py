@@ -427,7 +427,7 @@ tmux a
     remote_fn = remote_fn.replace('~', self.homedir)
     username = self.ssh_username
     hostname = self.public_ip
-    cmd = (f'rsync -av -e "ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no" ' +
+    cmd = (f'rsync -av --exclude=\'.git/\' -e "ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no" ' +
            f'{local_fn} {username}@{hostname}:{remote_fn}')
     self.log(cmd)
 
