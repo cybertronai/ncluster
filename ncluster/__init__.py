@@ -26,6 +26,6 @@ from .ncluster import get_logdir_root
 if 'NCLUSTER_BACKEND' in os.environ:
   set_backend(os.environ['NCLUSTER_BACKEND'])
 else:
-  set_backend('local')
+  set_backend('aws')
 
 util.install_pdb_handler()  # CTRL+\ drops into pdb
