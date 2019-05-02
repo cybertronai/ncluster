@@ -8,6 +8,7 @@ import time
 
 import pytz
 
+import ncluster
 from ncluster import aws_util as u
 from ncluster.aws_backend import INSTANCE_INFO
 
@@ -119,7 +120,7 @@ def ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address} " \
+  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {u.get_aws_username(instance)}@{instance.public_ip_address} " \
              f"tmux attach"
   print(user_cmd)
   os.system(user_cmd)
@@ -135,7 +136,7 @@ def old_ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address}"
+  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {u.get_aws_username(instance)}@{instance.public_ip_address}"
   print(user_cmd)
   os.system(user_cmd)
 
@@ -235,7 +236,7 @@ def mosh(fragment=''):
   print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
 
   user_cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' " \
-             f"ubuntu@{instance.public_ip_address} tmux attach"
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address} tmux attach"
   print(user_cmd)
   os.system(user_cmd)
 
@@ -302,14 +303,18 @@ def terminate_tmux(_):
     print("Killing " + session_name)
     _run_shell('tmux kill-session -t ' + session_name)
 
+def nano(*unused_args):
+  """Bring up t2.nano instance."""
+  task = ncluster.make_task(name='shell',
+                            instance_type='t2.nano')
 
 def cmd(user_cmd):
   """Finds most recent instance launched by user, runs commands there, pipes output to stdout"""
 
   instances = u.lookup_instances(limit_to_current_user=True)
-  assert instances, f"u.get_username() doesn't have an instances to connect to"
+  assert instances, f"{u.get_username()} doesn't have an instances to connect to. Use 'ncluster nano' to bring up a small instance."
   instance = instances[0]
-  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no ubuntu@{instance.public_ip_address} " \
+  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {u.get_aws_username(instance)}@{instance.public_ip_address} " \
              f"{user_cmd}"
   os.system(user_cmd)
 
@@ -332,6 +337,7 @@ MODES = {
   'efs': efs,
   'cat': cat,
   'ls_': ls_,
+  'nano': nano,
   'cmd': cmd,
   '/etc/hosts': etchosts,
   'hosts': etchosts,

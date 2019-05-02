@@ -324,7 +324,13 @@ def lookup_image(wildcard):
   return images[0]
 
 
-# TODO(y): remove since it overlaps with lookup_instances?
+def get_aws_username(instance):
+  if 'amzn' or 'amazon' in instance.image.name.lower():
+    return 'ec2-user'
+  else:
+    return 'ubuntu'
+
+
 def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
                     states: tuple = ('running', 'stopped', 'initializing'),
                     limit_to_current_user=False):
@@ -372,7 +378,7 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
       return result[0]
 
 
-def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=['running'],
+def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=('running',),
                      limit_to_current_user=False) -> List:
   """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
   most recent instance first). Optionally filters by key, only including instances launched with
@@ -409,8 +415,8 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
   for instance in ec2.instances.all():
     if instance.state['Name'] not in valid_states:
       continue
-      if limit_to_current_user and instance.key_name != get_keypair_name():
-        continue
+    if limit_to_current_user and instance.key_name != get_keypair_name():
+      continue
 
     name = get_name(instance)
     if exact_match:
@@ -817,6 +823,7 @@ def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
     num_tasks = launch_specs['MinCount'] or 1
     if 'MinCount' in launch_specs: del launch_specs['MinCount']
     if 'MaxCount' in launch_specs: del launch_specs['MaxCount']
+    tags = None
     if 'TagSpecifications' in launch_specs: 
       try: tags = launch_specs['TagSpecifications'][0]['Tags']
       except: pass
@@ -831,7 +838,7 @@ def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
     spot_args['SpotPrice'] = str(spot_price)
     spot_args['InstanceCount'] = num_tasks
     spot_args['ValidUntil'] = now + dt.timedelta(minutes=expiration_mins)
-    
+
     try:
       spot_requests = ec2c.request_spot_instances(**spot_args)
     except Exception as e:
