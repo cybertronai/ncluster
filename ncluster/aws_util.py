@@ -325,7 +325,8 @@ def lookup_image(wildcard):
 
 
 def get_aws_username(instance):
-  if 'amzn' or 'amazon' in instance.image.name.lower():
+  image_name = instance.image.name.lower()
+  if 'amzn' in image_name or 'amazon' in image_name:
     return 'ec2-user'
   else:
     return 'ubuntu'
