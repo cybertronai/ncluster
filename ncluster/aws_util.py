@@ -324,8 +324,10 @@ def lookup_image(wildcard):
   return images[0]
 
 
+# TODO(y): remove since it overlaps with lookup_instances?
 def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
-                    states: tuple = ('running', 'stopped', 'initializing')):
+                    states: tuple = ('running', 'stopped', 'initializing'),
+                    limit_to_current_user=False):
   """Looks up AWS instance for given instance name, like
    simple.worker. If no instance found in current AWS environment, returns None. """
 
@@ -343,6 +345,9 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
   for i in instances.all():
     instance_name = get_name(i)
     if instance_name != name:
+      continue
+
+    if limit_to_current_user and i.key_name != get_keypair_name():
       continue
 
     seen_prefix, seen_username = parse_key_name(i.key_name)
@@ -367,9 +372,10 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
       return result[0]
 
 
-def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=['running']) -> List:
+def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=['running'],
+                     limit_to_current_user=False) -> List:
   """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
-  most recent intance first). Optionally filters by key, only including instances launched with
+  most recent instance first). Optionally filters by key, only including instances launched with
   key_name matching current username.
 
   If fragment is wrapped in single quotes like 'somemachine', it strips quotes and will try to match somemachine exactly
@@ -378,6 +384,8 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
 
     filter_by_key  if True, ignore instances that are not launched with current
         user's default key
+    limit_to_current_user Restrict result to instances that current user can ssh into
+
   """
 
   if fragment.startswith("'"):
@@ -401,6 +409,8 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
   for instance in ec2.instances.all():
     if instance.state['Name'] not in valid_states:
       continue
+      if limit_to_current_user and instance.key_name != get_keypair_name():
+        continue
 
     name = get_name(instance)
     if exact_match:
