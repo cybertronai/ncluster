@@ -943,6 +943,8 @@ def make_job(
     pprint.pprint(placement_dict)
     raise RuntimeError(
       f"Got instance spread over multiple placement_group groups: {placement_dict}. Must terminate all instances in run {run_name} and try again.")
+  ncluster_globals.unenforce_placement_group()
+
   return job
 
 

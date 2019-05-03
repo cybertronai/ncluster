@@ -34,6 +34,12 @@ def enforce_placement_group():
   enforce_placement_group_val = True
 
 
+def unenforce_placement_group():
+  """Enforces all tasks to be launched into placement group."""
+  global enforce_placement_group_val
+  enforce_placement_group_val = False
+
+
 def is_enforced_placement_group():
   return enforce_placement_group_val
 
