@@ -30,6 +30,7 @@ _RAW_INSTANCE_INFO = [
     ['c5.18xlarge', 3.06, None, None],
     ['m4.2xlarge', 0.40, None, None],
     ['r5.large', 0.126, None, None],
+    ['t2.nano', 0.005, None, None],
 ]
 _RAW_HEADERS= ['cost', 'gpus', 'gpu_mem_gb']
 

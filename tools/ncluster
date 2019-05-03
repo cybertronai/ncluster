@@ -107,7 +107,7 @@ def etchosts(_):
 def _user_keypair_check(instance):
   launching_user = instance.key_name[len(u.get_prefix()) + 1:]
   current_user = os.environ['USER']
-  assert launching_user == current_user, f"Set USER={launching_user} to connect to this machine"
+  assert launching_user == current_user, f"Set USER={launching_user} to connect to this machine, and make sure their .pem file is in your ~/.ncluster"
 
 
 def ssh(fragment=''):
@@ -232,8 +232,8 @@ def mosh(fragment=''):
   if not _check_instance_found(instances, fragment):
     return
   instance = instances[0]
-  _user_keypair_check(instance)
   print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)}")
+  _user_keypair_check(instance)
 
   user_cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address} tmux attach"
