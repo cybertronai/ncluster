@@ -17,6 +17,46 @@ pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requ
 pip install -U ncluster
 ```
 
+
+## Command-line tool
+
+```
+ncluster
+ncluster ls
+ncluster hosts
+ncluster ls
+ncluster ls <substring>
+ncluster ssh # connects to latest instance
+ncluster ssh <substring>  # connects to latest instance containing <substring>
+ncluster ssh \'<exact match>\'
+ncluster mosh <substring> 
+ncluster kill <substring>    # terminates matching instances
+ncluster kill \'<exact match>\'
+ncluster stop <substring>    # stops matching instances
+ncluster start <substring>   # starts matching stopped instances
+ncluster nano       # starts a tiny instance
+
+ncluster ssh_    # like ssh but works on dumb terminals
+ncluster ls     
+ncluster cat <fn>
+ncluster cmd "some command to run remotely on AWS"
+
+ncluster efs   # gives EFS info such as the mount command
+
+nsync -n gpubox
+nsync -n gpubox -t transformer-xl
+
+
+nsync
+nsync -t {target directory} -n {substring}
+
+nsync -n gpubox # syncs . to ~ on gpubox
+nsync -t transformer-xl -n 4gpubox  # syncs . to ~/transformer-xl on 4gpubox
+
+
+{substring} selects the most recently launched instances whose name contains the substring. Empty string is a valid substring. Skipping -t will sync to ~ on remote machine. Sync seems to be 1 way (from local -> remote)
+```
+
 ### Extra
 An example of installing pip/tmux/python 3.6 on MacOS
 
