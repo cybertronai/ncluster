@@ -364,6 +364,8 @@ def main():
       else:
         print(k)
     return
+  if mode not in MODES:
+      assert False, f"ncluster unknown mode {mode}, available modes are {MODES.keys()}"
   MODES[mode](fragment)
 
 
