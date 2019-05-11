@@ -33,7 +33,7 @@ with newlines stripped"""
 
 def _check_instance_found(instances, fragment):
   if not instances:
-    print(f"Couldn't find instances matching {fragment}")
+    print(f"Couldn't find instances matching {fragment} for key {u.get_keypair_name()}")
     return False
   return True
 
@@ -107,7 +107,8 @@ def etchosts(_):
 def _user_keypair_check(instance):
   launching_user = instance.key_name[len(u.get_prefix()) + 1:]
   current_user = os.environ['USER']
-  assert launching_user == current_user, f"Set USER={launching_user} to connect to this machine, and make sure their .pem file is in your ~/.ncluster"
+  assert launching_user == current_user, f"Set USER={launching_user} to connect to this machine, and make sure their " \
+                                         f".pem file is in your ~/.ncluster"
 
 
 def ssh(fragment=''):
@@ -120,7 +121,8 @@ def ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {u.get_aws_username(instance)}@{instance.public_ip_address} " \
+  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address} " \
              f"tmux attach"
   print(user_cmd)
   os.system(user_cmd)
@@ -136,7 +138,8 @@ def old_ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {u.get_aws_username(instance)}@{instance.public_ip_address}"
+  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address}"
   print(user_cmd)
   os.system(user_cmd)
 
@@ -150,19 +153,22 @@ def kill(fragment=''):
   for i in instances:
     state = i.state['Name']
     if LIMIT_TO_CURRENT_USER and i.key_name != u.get_keypair_name():
-      print(f"Skipping instance launched with key {i.key_name}, use reallykill to kill")
+      print(f"Skipping instance '{u.get_name(i)}' launched with key {i.key_name}, use reallykill to kill")
       continue
     print(u.get_name(i), i.instance_type, i.key_name,
           state if state == 'stopped' else '')
     instances_to_kill.append(i)
 
   action = 'terminating'
-  if not _check_instance_found(instances, fragment):
+  if not _check_instance_found(instances_to_kill, fragment):
     return
 
-  answer = input(f"{len(instances_to_kill)} instances found, {action} in {u.get_region()}? (y/N) ")
-
   ec2_client = u.get_ec2_client()
+  if '-y' in sys.argv:
+    print("Yes specified, skipping confirmation")
+    answer = 'y'
+  else:
+    answer = input(f"{len(instances_to_kill)} instances found, {action} in {u.get_region()}? (y/N) ")
   if answer.lower() == "y":
     instance_ids = [i.id for i in instances_to_kill]
     response = ec2_client.terminate_instances(InstanceIds=instance_ids)
@@ -303,19 +309,22 @@ def terminate_tmux(_):
     print("Killing " + session_name)
     _run_shell('tmux kill-session -t ' + session_name)
 
-def nano(*unused_args):
+
+def nano(*_unused_args):
   """Bring up t2.nano instance."""
-  task = ncluster.make_task(name='shell',
-                            instance_type='t2.nano')
+  ncluster.make_task(name='shell',
+                     instance_type='t2.nano')
+
 
 def cmd(user_cmd):
   """Finds most recent instance launched by user, runs commands there, pipes output to stdout"""
 
   instances = u.lookup_instances(limit_to_current_user=True)
-  assert instances, f"{u.get_username()} doesn't have an instances to connect to. Use 'ncluster nano' to bring up a small instance."
+  assert instances, f"{u.get_username()} doesn't have an instances to connect to. Use 'ncluster nano'" \
+                    f" to bring up a small instance."
   instance = instances[0]
-  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {u.get_aws_username(instance)}@{instance.public_ip_address} " \
-             f"{user_cmd}"
+  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address} {user_cmd}"
   os.system(user_cmd)
 
 
@@ -365,7 +374,7 @@ def main():
         print(k)
     return
   if mode not in MODES:
-      assert False, f"ncluster unknown mode {mode}, available modes are {MODES.keys()}"
+    assert False, f"ncluster unknown mode {mode}, available modes are {MODES.keys()}"
   MODES[mode](fragment)
 
 
