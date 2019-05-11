@@ -1,14 +1,6 @@
 # ncluster
 By Yaroslav Bulatov, Andrew Shaw, Ben Mann
 
-```
-import ncluster
-task = ncluster.make_task(instance_type='p2.xlarge')
-task.upload('myscript.py')
-task.run('python myscript.py > out')
-task.download('out')
-```
-
 ## Installation
 Install pip, tmux, Python 3.6 (see below), then
 
@@ -17,8 +9,19 @@ pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requ
 pip install -U ncluster
 ```
 
+## Python API
 
-## Command-line tool
+```
+import ncluster
+task = ncluster.make_task(instance_type='p2.xlarge')
+task.upload('myscript.py')
+task.run('python myscript.py > out')
+task.download('out')
+```
+
+
+
+## Command-line tools
 
 ```
 ncluster
@@ -46,8 +49,6 @@ ncluster efs   # gives EFS info such as the mount command
 nsync -n gpubox
 nsync -n gpubox -t transformer-xl
 
-
-nsync
 nsync -t {target directory} -n {substring}
 
 nsync -n gpubox # syncs . to ~ on gpubox
