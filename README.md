@@ -61,6 +61,9 @@ nsync -t transformer-xl -n 4gpubox  # syncs . to ~/transformer-xl on 4gpubox
 {substring} selects the most recently launched instances whose name contains the substring. Empty string is a valid substring. Skipping -t will sync to ~ on remote machine. Sync seems to be 1 way (from local -> remote)
 ```
 
+## Docs
+- Some out-of-date docs with more info [docs](https://docs.google.com/document/d/178ITRCAkboHoOEZFnz9XvOsc8lXik6Acz_DS_V1u8hY/edit?usp=sharing)
+
 ### Extra
 An example of installing pip/tmux/python 3.6 on MacOS
 
