@@ -138,7 +138,7 @@ def old_ssh(fragment=''):
         f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
+  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ConnectTimeout=2 " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address}"
   print(user_cmd)
   os.system(user_cmd)
