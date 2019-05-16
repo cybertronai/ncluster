@@ -883,7 +883,7 @@ def make_job(
   """
 
   ncluster_globals.set_should_skip_setup(skip_setup)
-  assert u.instance_supports_placement_groups(instance_type), f"jobs supported only on instances that enable placement groups, current instance {instance_type} doesn't"
+  assert u.instance_supports_placement_groups(instance_type), f"jobs supported only on instances that enable placement groups, current instance '{instance_type}' doesn't"
   ncluster_globals.enforce_placement_group()
 
   assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"

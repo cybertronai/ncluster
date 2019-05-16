@@ -61,7 +61,7 @@ def ls(fragment=''):
   print('-' * 80)
   print(
     f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s} "
-    f"{'key/owner':>15s}")
+    f"{'key/owner':>15s} {'private ip':>15s}")
   print('-' * 80)
   for instance in instances[::-1]:
     # current time in UTC zone (default AWS)
@@ -75,7 +75,7 @@ def ls(fragment=''):
     else:
       cost = -1
     print(f"{u.get_name(instance):15s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
-          f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s}")
+          f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s} {instance.private_ip_address:>15s} ")
 
   # list spot requests, ignore active ones since they show up already
   client = u.get_ec2_client()
@@ -117,8 +117,13 @@ def ssh(fragment=''):
   if not _check_instance_found(instances, fragment):
     return
   instance = instances[0]
-  print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
-        f"launched by {instance.key_name}")
+  if len(instances) > 1:
+    print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+  else:
+    print(f"Connecting to  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+    
 
   _user_keypair_check(instance)
   user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
@@ -134,8 +139,12 @@ def old_ssh(fragment=''):
   if not _check_instance_found(instances, fragment):
     return
   instance = instances[0]
-  print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
-        f"launched by {instance.key_name}")
+  if len(instances) > 1:
+    print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+  else:
+    print(f"Connecting to  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
   user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ConnectTimeout=2 " \
