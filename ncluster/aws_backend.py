@@ -338,7 +338,7 @@ tmux a
       assert False, "Using .run before initialization finished"
 
     if '\n' in cmd:
-      assert False, "Don't support multi-line for run2"
+      assert "'" in cmd or '"' in cmd, f"Your command '{cmd}' has newline but no quotes, are you sure?"
 
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
