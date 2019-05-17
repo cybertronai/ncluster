@@ -524,6 +524,7 @@ tmux a
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
       self.log("downloading %s to %s" % (remote_fn, local_fn))
+    remote_fn = remote_fn.replace('~', self.homedir)
     self.sftp.get(remote_fn, local_fn)
 
   def exists(self, remote_fn):
