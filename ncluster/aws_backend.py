@@ -424,14 +424,16 @@ tmux a
 
     return stdout_str, stderr_str
 
-  def rsync(self, local_fn: str, remote_fn: str = ''):
+  def rsync(self, local_fn: str, remote_fn: str = '', exclude_git=False):
     """Rsync dir to remote instance. If location not specified, dumps it into default directory."""
     if not remote_fn:
       remote_fn = os.path.basename(local_fn)
     remote_fn = remote_fn.replace('~', self.homedir)
     username = self.ssh_username
     hostname = self.public_ip
-    cmd = (f'rsync -av --exclude=\'.git/\' -e "ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no" ' +
+    if exclude_git:
+      excludes = f"--exclude=\'.git/\'"
+    cmd = (f'rsync -av {excludes} -e "ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no" ' +
            f'{local_fn} {username}@{hostname}:{remote_fn}')
     self.log(cmd)
 
