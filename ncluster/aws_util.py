@@ -776,7 +776,11 @@ def maybe_create_placement_group(name='', max_retries=10):
       try:
         _response = client.create_placement_group(GroupName=name,
                                                   Strategy='cluster')
-      except Exception:
+      except Exception as e:
+        if 'PlacementGroupLimitExceeded' in str(e):
+          print(e)
+          assert False, "Clean-up placement groups using 'ncluster cleanup_placement_groups'"
+        print(f"Placement group creation failed with {e}, retrying")
         # because of race can get InvalidPlacementGroup.Duplicate
         pass
 
