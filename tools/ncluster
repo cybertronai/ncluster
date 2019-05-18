@@ -344,6 +344,7 @@ def ls_(user_cmd): cmd('ls ' + user_cmd)
 
 def cleanup_placement_groups(*args):
   print("Deleting all placement groups")
+  # TODO(y): don't delete groups that have currently stopped instances
   client = u.get_ec2_client()
   for group in client.describe_placement_groups().get('PlacementGroups', []):
     name = group['GroupName']
