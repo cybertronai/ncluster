@@ -123,7 +123,6 @@ def ssh(fragment=''):
   else:
     print(f"Connecting to  {u.get_name(instance)} "
           f"launched by {instance.key_name}")
-    
 
   _user_keypair_check(instance)
   user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
@@ -343,7 +342,21 @@ def cat(user_cmd): cmd('cat ' + user_cmd)
 def ls_(user_cmd): cmd('ls ' + user_cmd)
 
 
-MODES = {
+def cleanup_placement_groups(*args):
+  print("Deleting all placement groups")
+  client = u.get_ec2_client()
+  for group in client.describe_placement_groups().get('PlacementGroups', []):
+    name = group['GroupName']
+    sys.stdout.write(f"Deleting {name} ... ")
+    sys.stdout.flush()
+    try: 
+      client.delete_placement_group(GroupName=name)
+      print("success")
+    except Exception as _:
+      print("failed")
+
+
+COMMANDS = {
   'ls': ls,
   'ssh': ssh,
   'ssh_': old_ssh,
@@ -360,6 +373,7 @@ MODES = {
   '/etc/hosts': etchosts,
   'hosts': etchosts,
   'terminate_tmux': terminate_tmux,
+  'cleanup_placement_groups': cleanup_placement_groups
 }
 
 
@@ -376,15 +390,15 @@ def main():
     fragment = sys.argv[2]
 
   if mode == 'help':
-    for k, v in MODES.items():
+    for k, v in COMMANDS.items():
       if v.__doc__:
         print(f'{k}\t{v.__doc__}')
       else:
         print(k)
     return
-  if mode not in MODES:
-    assert False, f"ncluster unknown mode {mode}, available modes are {MODES.keys()}"
-  MODES[mode](fragment)
+  if mode not in COMMANDS:
+    assert False, f"unknown command '{mode}', available commands are {', '.join(str(a) for a in COMMANDS.keys())}"
+  COMMANDS[mode](fragment)
 
 
 if __name__ == '__main__':
