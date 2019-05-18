@@ -25,7 +25,6 @@ import time
 import util
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
 parser.add_argument("--iters", default=11, type=int,
                     help="Maximum number of additions")
 parser.add_argument("--size-mb", default=100, type=int,
@@ -33,7 +32,8 @@ parser.add_argument("--size-mb", default=100, type=int,
 parser.add_argument("--shards", default=1, type=int,
                     help="how many ways to shard the variable")
 parser.add_argument('--image',
-                    default='Deep Learning AMI (Ubuntu) Version 15.0')
+                    default='Deep Learning AMI (Ubuntu) Version 22.0')
+parser.add_argument('--instance_type', type=str, default='')
 parser.add_argument('--name',
                     default='mpi')
 
@@ -44,10 +44,9 @@ args = parser.parse_args()
 
 def run_launcher():
   import ncluster
-  if args.aws:
-    ncluster.set_backend('aws')
 
-  job = ncluster.make_job(args.name, num_tasks=2, image_name=args.image)
+  job = ncluster.make_job(args.name, num_tasks=2, image_name=args.image,
+                          instance_type=args.instance_type)
   job.upload(__file__)
   job.upload('util.py')
 
@@ -57,12 +56,15 @@ def run_launcher():
 
   if ncluster.get_backend() == 'aws':
     # on AWS probably running in conda DLAMI, switch into TF-enabled env
+    # TODO(y) switch to PyTorch enabled
     job.run('source activate tensorflow_p36')
+    
 
-  
-  hosts = [task.public_ip for task in job.tasks]
+
+  # TODO(y): this should be private ip
+  hosts = [task.ip for task in job.tasks]
   host_str = ','.join(hosts)
-  os.system(f'mpirun -np 2 --host {host_str} python {__file__} --role=worker')
+  os.system(f'/usr/local/mpi/bin/mpirun -np 2 --host {host_str} python {__file__} --role=worker')
   print(job.tasks[0].read('/tmp/out'))
 
 
