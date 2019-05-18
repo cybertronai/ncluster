@@ -219,9 +219,12 @@ tmux a
     # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
     # this would ensure that commands being sent are not being swallowed
 
-  def run(self, cmd, non_blocking=False, ignore_errors=False,
+  def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2):
+
+    if sudo:
+      cmd = f"sudo bash -c '{cmd}'"
 
     # TODO(y): make _run_with_output_on_failure default, and delete this
     if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE') or True:
@@ -368,7 +371,7 @@ tmux a
     tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
     self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
     if non_blocking:
-      return 0
+      return '0'
 
     if not self.wait_for_file(self._status_fn, max_wait_sec=60):
       self.log(f"Retrying waiting for {self._status_fn}")
@@ -561,6 +564,9 @@ tmux a
 
     self.tmux_window_id = window_id
 
+  @property
+  def num_gpus(self):
+    return INSTANCE_INFO[self.instance.instance_type]['gpus']
 
   @property
   def logdir(self):
@@ -690,7 +696,8 @@ def make_task(
         preemptible=None,
         logging_task: backend.Task = None,
         create_resources=True,
-        spot=False
+        spot=False,
+        **_kwargs
 ) -> Task:
   """
   Create task on AWS.
