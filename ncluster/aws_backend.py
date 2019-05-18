@@ -569,6 +569,11 @@ tmux a
     return INSTANCE_INFO[self.instance.instance_type]['gpus']
 
   @property
+  def output(self):
+    last_fn = self._out_fn
+    return self.read(last_fn)
+
+  @property
   def logdir(self):
     """Returns logging directory, creating one if necessary. See "Logdir" section
     of design doc on naming convention"""
