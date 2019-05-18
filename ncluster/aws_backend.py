@@ -431,6 +431,7 @@ tmux a
     remote_fn = remote_fn.replace('~', self.homedir)
     username = self.ssh_username
     hostname = self.public_ip
+    excludes = ''
     if exclude_git:
       excludes = f"--exclude=\'.git/\'"
     cmd = (f'rsync -av {excludes} -e "ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no" ' +
