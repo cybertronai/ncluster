@@ -1,6 +1,7 @@
 # ncluster
 By Yaroslav Bulatov, Andrew Shaw, Ben Mann
-https://github.com/yaroslavvb/ncluster
+
+https://github.com/cybertronai/ncluster
 
 ## Installation
 Install pip, tmux, Python 3.6 (see below), then
