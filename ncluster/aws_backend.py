@@ -46,6 +46,7 @@ DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 # some image which is fast to load, to use for quick runs
 GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
 
+
 def check_cmd(cmd):
   assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
 
@@ -355,6 +356,7 @@ tmux a
     self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
 
     cmd = util.shell_strip_comment(cmd)
+    cmd = f'({cmd})'  # wrap in ( ) so that 'cmd1|cmd2 > ...' works
     check_cmd(cmd)
     # modify command to dump shell success status into file
     self.file_write(self._cmd_fn, cmd + '\n')
