@@ -356,7 +356,9 @@ tmux a
     self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
 
     cmd = util.shell_strip_comment(cmd)
-    cmd = f'({cmd})'  # wrap in ( ) so that 'cmd1|cmd2 > ...' works
+    # https://www.gnu.org/software/bash/manual/html_node/Command-Grouping.html
+    cmd = '{ '+cmd+'; }'  # wrap in { } so that 'cmd1||cmd2 > ...' works
+
     check_cmd(cmd)
     # modify command to dump shell success status into file
     self.file_write(self._cmd_fn, cmd + '\n')
