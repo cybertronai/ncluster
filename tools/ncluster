@@ -60,7 +60,7 @@ def ls(fragment=''):
   instances = u.lookup_instances(fragment)
   print('-' * 80)
   print(
-    f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'ip_address':>15s} "
+    f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'public_ip':>15s} "
     f"{'key/owner':>15s} {'private ip':>15s}")
   print('-' * 80)
   for instance in instances[::-1]:
@@ -342,7 +342,7 @@ def cat(user_cmd): cmd('cat ' + user_cmd)
 def ls_(user_cmd): cmd('ls ' + user_cmd)
 
 
-def cleanup_placement_groups(*args):
+def cleanup_placement_groups(*_args):
   print("Deleting all placement groups")
   # TODO(y): don't delete groups that have currently stopped instances
   client = u.get_ec2_client()
@@ -355,6 +355,15 @@ def cleanup_placement_groups(*args):
       print("success")
     except Exception as _:
       print("failed")
+
+
+def lookup_image_name(image_id):
+  """Looks up image name given image id"""
+  ec2 = u.get_ec2_resource()
+  images = list(ec2.images.all())
+  selected_images = [im for im in images if im.id == image_id]
+  assert selected_images, f"No images found with id={image_id}"
+  return selected_images[0].name
 
 
 COMMANDS = {
@@ -374,7 +383,8 @@ COMMANDS = {
   '/etc/hosts': etchosts,
   'hosts': etchosts,
   'terminate_tmux': terminate_tmux,
-  'cleanup_placement_groups': cleanup_placement_groups
+  'cleanup_placement_groups': cleanup_placement_groups,
+  'lookup_image_name': lookup_image_name
 }
 
 
