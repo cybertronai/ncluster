@@ -363,7 +363,7 @@ def lookup_image_name(image_id):
   images = list(ec2.images.all())
   selected_images = [im for im in images if im.id == image_id]
   assert selected_images, f"No images found with id={image_id}"
-  return selected_images[0].name
+  print(selected_images[0].name)
 
 
 COMMANDS = {
