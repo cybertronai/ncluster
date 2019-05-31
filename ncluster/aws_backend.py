@@ -92,9 +92,10 @@ class Task(backend.Task):
     self.sftp = None
     self._linux_type = 'ubuntu'
 
+    # TODO(y): this logic is duplicated in aws_util, reuse that function instead
     # heuristic to tell if I'm using Amazon image name
     # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
-    if 'amzn' in image_name.lower() or 'amazon' in image_name.lower():
+    if 'amzn' in image_name.lower() or 'amazon' in image_name.lower() or image_name == 'dlami23-efa':
       self.log('Detected Amazon Linux image')
       self._linux_type = 'amazon'
     self.run_counter = 0

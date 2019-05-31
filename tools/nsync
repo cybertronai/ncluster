@@ -115,7 +115,7 @@ class Sync(object):
     # todo, rename no_strict_checking to ssh_command
 
     keypair_fn = u.get_keypair_fn()
-    username = 'ubuntu'
+    username = u.get_aws_username(instance)
     ip = instance.public_ip_address
 
     ssh_command = "ssh -i %s -o StrictHostKeyChecking=no" % (keypair_fn,)

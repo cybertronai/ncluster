@@ -326,7 +326,7 @@ def lookup_image(wildcard):
 
 def get_aws_username(instance):
   image_name = instance.image.name.lower()
-  if 'amzn' in image_name or 'amazon' in image_name:
+  if 'amzn' in image_name or 'amazon' in image_name or image_name == 'dlami23-efa':
     print("Auto-detected Amazon Linux, using ec2-user ssh name")
     return 'ec2-user'
   else:
