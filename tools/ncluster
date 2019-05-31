@@ -125,11 +125,29 @@ def ssh(fragment=''):
           f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no " \
+  user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ServerAliveCountMax=1 " \
+             f"-o ServerAliveInterval=60" \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address} " \
              f"tmux attach"
   print(user_cmd)
   os.system(user_cmd)
+
+
+def reboot(fragment=''):
+  """reboots given instance."""
+  instances = u.lookup_instances(fragment)
+  if not _check_instance_found(instances, fragment):
+    return
+  instance = instances[0]
+  if len(instances) > 1:
+    print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+  else:
+    print(f"Rebooting to  {u.get_name(instance)}  ({instance.id})"
+          f"launched by {instance.key_name}")
+
+  _user_keypair_check(instance)
+  instance.reboot()
 
 
 def old_ssh(fragment=''):
@@ -384,7 +402,8 @@ COMMANDS = {
   'hosts': etchosts,
   'terminate_tmux': terminate_tmux,
   'cleanup_placement_groups': cleanup_placement_groups,
-  'lookup_image_name': lookup_image_name
+  'lookup_image_name': lookup_image_name,
+  'reboot': reboot,
 }
 
 
