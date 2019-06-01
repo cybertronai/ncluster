@@ -1,11 +1,17 @@
 #!/usr/bin/env python
 #
-# Creates resources
+# Creates resources.
+# To run standalone:
+# python -m ncluster.aws_create_resources
+#
 # This script creates VPC/security group/keypair if not already present
 
 import os
 import sys
 import time
+from typing import Tuple, Any, Optional
+
+from boto3_type_annotations.ec2 import SecurityGroup
 
 from ncluster import aws_util as u
 from ncluster import util
@@ -16,8 +22,10 @@ DEBUG = True
 # Names of Amazon resources that are created. These settings are fixed across
 # all runs, and correspond to resources created once per user per region.
 
+NFS_PORT = 2049
 PUBLIC_TCP_RANGES = [
   22,  # ssh
+  NFS_PORT,  # NFS port NFS peering between security groups
   # ipython notebook ports
   (8888, 8899),
   # redis port
@@ -26,13 +34,10 @@ PUBLIC_TCP_RANGES = [
   (6006, 6016)
 ]
 
-PUBLIC_UDP_RANGES = [(60000, 61000)]  # mosh ports
+PUBLIC_UDP_RANGES = [NFS_PORT, (60000, 61000)]  # mosh ports
 
 
-# TODO: this creates a custom VPC, but we are using default VPC, so have two security groups
-# once we are sure we don't need custom VPC, can get rid of extra VPC creation
-
-def network_setup():
+def network_setup() -> Tuple[Any, Any, Any]:
   """Creates VPC if it doesn't already exists, configures it for public
   internet access, returns vpc, subnet, security_group"""
 
@@ -81,7 +86,6 @@ def network_setup():
                                             VpcId=vpc.id)
     assert attach_state == 'available', "vpc %s is in state %s" % (vpc.id,
                                                                    attach_state)
-
     route_table = vpc.create_route_table()
     route_table_name = u.get_route_table_name()
     route_table.create_tags(Tags=u.create_name_tags(route_table_name))
@@ -125,7 +129,18 @@ def network_setup():
 
       route_table.associate_with_subnet(SubnetId=subnet.id)
 
-  # Use default VPC from now on
+  # Setup security group for non-default VPC
+  existing_security_groups = u.get_security_group_dict()
+  security_group_nd_name = u.get_security_group_nd_name()
+  if security_group_nd_name in existing_security_groups:
+    print("Reusing non-default security group " + security_group_nd_name)
+    security_group_nd = existing_security_groups[security_group_nd_name]
+    assert security_group_nd.vpc_id == vpc.id, f"Found non-default security group {security_group_nd} " \
+                                               f"attached to {security_group_nd.vpc_id} but expected {vpc.id}"
+  else:
+    security_group_nd = create_security_group(security_group_nd_name, vpc.id)
+
+  # Setup things on default VPC for zone-agnostic launching
   vpc = u.get_default_vpc()
   if not vpc:
     util.log(f"Creating default VPC for region {u.get_region()}")
@@ -141,86 +156,9 @@ def network_setup():
     assert security_group.vpc_id == vpc.id, f"Found security group {security_group} " \
                                             f"attached to {security_group.vpc_id} but expected {vpc.id}"
   else:
-    print("Creating security group " + security_group_name)
-    security_group = ec2.create_security_group(
-      GroupName=security_group_name, Description=security_group_name,
-      VpcId=vpc.id)
+    security_group = create_security_group(security_group_name, vpc.id, security_group_nd)
 
-    security_group.create_tags(Tags=u.create_name_tags(security_group_name))
-
-    # allow ICMP access for public ping
-    security_group.authorize_ingress(
-      CidrIp='0.0.0.0/0',
-      IpProtocol='icmp',
-      FromPort=-1,
-      ToPort=-1
-    )
-
-    # open public ports
-    # always include SSH port which is required for basic functionality
-    assert 22 in PUBLIC_TCP_RANGES, "Must enable SSH access"
-    for port in PUBLIC_TCP_RANGES:
-      if util.is_iterable(port):
-        assert len(port) == 2
-        from_port, to_port = port
-      else:
-        from_port, to_port = port, port
-
-      response = security_group.authorize_ingress(IpProtocol="tcp",
-                                                  CidrIp="0.0.0.0/0",
-                                                  FromPort=from_port,
-                                                  ToPort=to_port)
-      assert u.is_good_response(response)
-
-    for port in PUBLIC_UDP_RANGES:
-      if util.is_iterable(port):
-        assert len(port) == 2
-        from_port, to_port = port
-      else:
-        from_port, to_port = port, port
-
-      response = security_group.authorize_ingress(IpProtocol="udp",
-                                                  CidrIp="0.0.0.0/0",
-                                                  FromPort=from_port,
-                                                  ToPort=to_port)
-      assert u.is_good_response(response)
-
-    # allow ingress within security group
-    # Authorizing ingress doesn't work with names in a non-default VPC,
-    # so must use more complicated syntax
-    # https://github.com/boto/boto3/issues/158
-    response = {}
-    for protocol in ['icmp']:
-      try:
-        rule = {'FromPort': -1,
-                'IpProtocol': protocol,
-                'IpRanges': [],
-                'PrefixListIds': [],
-                'ToPort': -1,
-                'UserIdGroupPairs': [{'GroupId': security_group.id}]}
-        response = security_group.authorize_ingress(IpPermissions=[rule])
-      except Exception as e:
-        if response['Error']['Code'] == 'InvalidPermission.Duplicate':
-          print("Warning, got " + str(e))
-        else:
-          assert False, "Failed while authorizing ingress with " + str(e)
-
-    for protocol in ['tcp', 'udp']:
-      try:
-        rule = {'FromPort': 0,
-                'IpProtocol': protocol,
-                'IpRanges': [],
-                'PrefixListIds': [],
-                'ToPort': 65535,
-                'UserIdGroupPairs': [{'GroupId': security_group.id}]}
-        response = security_group.authorize_ingress(IpPermissions=[rule])
-      except Exception as e:
-        if response['Error']['Code'] == 'InvalidPermission.Duplicate':
-          print("Warning, got " + str(e))
-        else:
-          assert False, "Failed while authorizing ingress with " + str(e)
-
-  return vpc, security_group
+  return vpc, security_group, security_group_nd
 
 
 def keypair_setup():
@@ -273,10 +211,101 @@ def placement_group_setup(group_name):
   return group
 
 
+def create_security_group(security_group_name: str, vpc_id: str, other_group: Optional[SecurityGroup] = None):
+  """Creates security group with proper ports open. Optionally allows all traffic from other_group"""
+  print("Creating security group " + security_group_name)
+  ec2 = u.get_ec2_resource()
+
+  security_group: SecurityGroup = ec2.create_security_group(
+    GroupName=security_group_name, Description=security_group_name,
+    VpcId=vpc_id)
+
+  security_group.create_tags(Tags=u.create_name_tags(security_group_name))
+
+  # allow ICMP access for public ping
+  security_group.authorize_ingress(
+    CidrIp='0.0.0.0/0',
+    IpProtocol='icmp',
+    FromPort=-1,
+    ToPort=-1
+  )
+
+  # open public ports
+  # always include SSH port which is required for basic functionality
+  assert 22 in PUBLIC_TCP_RANGES, "Must enable SSH access"
+  for port in PUBLIC_TCP_RANGES:
+    if util.is_iterable(port):
+      assert len(port) == 2
+      from_port, to_port = port
+    else:
+      from_port, to_port = port, port
+
+    response = security_group.authorize_ingress(IpProtocol="tcp",
+                                                CidrIp="0.0.0.0/0",
+                                                FromPort=from_port,
+                                                ToPort=to_port)
+    assert u.is_good_response(response)
+
+  for port in PUBLIC_UDP_RANGES:
+    if util.is_iterable(port):
+      assert len(port) == 2
+      from_port, to_port = port
+    else:
+      from_port, to_port = port, port
+
+    response = security_group.authorize_ingress(IpProtocol="udp",
+                                                CidrIp="0.0.0.0/0",
+                                                FromPort=from_port,
+                                                ToPort=to_port)
+    assert u.is_good_response(response)
+
+  # allow ingress within security group
+  # Authorizing ingress doesn't work with names in a non-default VPC,
+  # so must use more complicated syntax
+  # https://github.com/boto/boto3/issues/158
+  def authorize_from_group(security_group_: SecurityGroup, other_group_: SecurityGroup):
+    response_ = {}
+    for protocol in ['icmp']:
+      try:
+        rule = {'FromPort': -1,
+                'IpProtocol': protocol,
+                'IpRanges': [],
+                'PrefixListIds': [],
+                'ToPort': -1,
+                'UserIdGroupPairs': [{'GroupId': other_group_.id}]}
+        response_ = security_group_.authorize_ingress(IpPermissions=[rule])
+      except Exception as e:
+        if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
+          print("Warning, got " + str(e))
+        else:
+          assert False, "Failed while authorizing ingress with " + str(e)
+
+    for protocol in ['tcp', 'udp']:
+      try:
+        rule = {'FromPort': 0,
+                'IpProtocol': protocol,
+                'IpRanges': [],
+                'PrefixListIds': [],
+                'ToPort': 65535,
+                'UserIdGroupPairs': [{'GroupId': other_group_.id}]}
+        response_ = security_group_.authorize_ingress(IpPermissions=[rule])
+      except Exception as e:
+        if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
+          print("Warning, got " + str(e))
+        else:
+          assert False, "Failed while authorizing ingress with " + str(e)
+
+  authorize_from_group(security_group, security_group)
+  if other_group:
+    authorize_from_group(security_group, other_group)
+
+  return security_group
+
+
 def create_resources():
   print(f"Creating {u.get_prefix()} resources in region {u.get_region()}")
 
-  vpc, security_group = network_setup()
+  vpc, security_group, security_group_nd = network_setup()
   keypair_setup()  # saves private key locally to keypair_fn
 
   # create EFS

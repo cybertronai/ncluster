@@ -187,6 +187,12 @@ def validate_ncluster_job_name(name):
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
 
-def toseconds(dt):
+def toseconds(dt) -> float:
   """Converts datetime object to seconds."""
   return time.mktime(dt.utctimetuple())
+
+def is_set(env_name) -> bool:
+  if env_name not in os.environ:
+    return False
+  val = os.environ[env_name]
+  return val != '' and val != '0' and val != 'false'
