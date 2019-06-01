@@ -164,7 +164,7 @@ def old_ssh(fragment=''):
           f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ConnectTimeout=2 " \
+  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ConnectTimeout=30 " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address}"
   print(user_cmd)
   os.system(user_cmd)
@@ -384,6 +384,68 @@ def lookup_image_name(image_id):
   print(selected_images[0].name)
 
 
+# ncluster launch --image_name=dlami23-efa --instance_type=c5.large --name=test
+def launch(args_str):
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--name', type=str, default='ncluster_launch', help="instance name")
+  parser.add_argument('--image_name', type=str, default='cybertronai01')
+  parser.add_argument('--instance_type', type=str, default='p3.2xlarge', help="type of instance")
+  parser.add_argument('--disk_size', type=int, default=500, help="size of disk in GBs")
+  args = parser.parse_args(args_str.split())
+
+  task = ncluster.make_task(**vars(args))
+  task.run('echo helloworld')
+
+
+def fix_default_security_group(_):
+  """Allows ncluster and ncluster_nd security groups to exchange traffic with each other."""
+
+  def peer(current, other):
+    """allow current group to accept all traffic from other group"""
+
+    groups = u.get_security_group_dict()
+    current_group = groups[current]
+    other_group = groups[other]
+    response = {}
+    for protocol in ['icmp']:
+      try:
+        rule = {'FromPort': -1,
+                'IpProtocol': protocol,
+                'IpRanges': [],
+                'PrefixListIds': [],
+                'ToPort': -1,
+                'UserIdGroupPairs': [{'GroupId': other_group.id}]}
+        response = current_group.authorize_ingress(IpPermissions=[rule])
+
+      except Exception as e:
+        if response['Error']['Code'] == 'InvalidPermission.Duplicate':
+          print("Warning, got " + str(e))
+        else:
+          assert False, "Failed while authorizing ingress with " + str(e)
+
+    for protocol in ['tcp', 'udp']:
+      try:
+        rule = {'FromPort': 0,
+                'IpProtocol': protocol,
+                'IpRanges': [],
+                'PrefixListIds': [],
+                'ToPort': 65535,
+                'UserIdGroupPairs': [{'GroupId': other_group.id}]}
+        response = current_group.authorize_ingress(IpPermissions=[rule])
+      except Exception as e:
+        if response['Error']['Code'] == 'InvalidPermission.Duplicate':
+          print("Warning, got " + str(e))
+        else:
+          assert False, "Failed while authorizing ingress with " + str(e)
+
+  group1 = u.get_security_group_name()
+  group2 = u.get_security_group_nd_name()
+
+  peer(group1, group2)
+  peer(group2, group1)
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -404,6 +466,8 @@ COMMANDS = {
   'cleanup_placement_groups': cleanup_placement_groups,
   'lookup_image_name': lookup_image_name,
   'reboot': reboot,
+  'launch': launch,
+  'fix_default_security_group': fix_default_security_group,
 }
 
 
@@ -428,7 +492,7 @@ def main():
     return
   if mode not in COMMANDS:
     assert False, f"unknown command '{mode}', available commands are {', '.join(str(a) for a in COMMANDS.keys())}"
-  COMMANDS[mode](fragment)
+  COMMANDS[mode](' '.join(sys.argv[2:]))
 
 
 if __name__ == '__main__':
