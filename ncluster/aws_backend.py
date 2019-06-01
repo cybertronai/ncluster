@@ -10,9 +10,11 @@ import signal
 import stat
 import threading
 import time
-from typing import Tuple, List
+from typing import Tuple, List, Optional
+
 
 import paramiko
+from boto3_type_annotations.ec2 import Instance
 
 from ncluster import ncluster_globals
 
@@ -28,11 +30,12 @@ _RAW_INSTANCE_INFO = [
     ['p3.16xlarge', 24.48, 8, 16],
     ['p3dn.24xlarge', 31.212, 8, 32],
     ['c5.18xlarge', 3.06, None, None],
+    ['c5n.18xlarge', 3.888, None, None],
     ['m4.2xlarge', 0.40, None, None],
     ['r5.large', 0.126, None, None],
     ['t2.nano', 0.005, None, None],
 ]
-_RAW_HEADERS= ['cost', 'gpus', 'gpu_mem_gb']
+_RAW_HEADERS = ['cost', 'gpus', 'gpu_mem_gb']
 
 INSTANCE_INFO = dict([(x[0], dict(zip(_RAW_HEADERS, x[1:]))) for x in _RAW_INSTANCE_INFO])
 
@@ -58,10 +61,11 @@ class Task(backend.Task):
 
   tmux_window_id: int
   tmux_available_window_ids: List[int]
+  instance: Instance
 
-  sftp: paramiko.SFTPClient
+  sftp: Optional[paramiko.SFTPClient]
 
-  def __init__(self, name, *, instance, install_script='', image_name='',
+  def __init__(self, name, *, instance: Instance, install_script='', image_name='',
                **extra_kwargs):
     """
    Initializes Task on top of existing AWS instance. Blocks until instance is ready to execute
@@ -141,7 +145,8 @@ class Task(backend.Task):
         assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
 
     if not ncluster_globals.should_skip_setup():
-      self._mount_efs()
+      if not util.is_set('NCLUSTER_AWS_NOEFS'):
+        self._mount_efs()
 
     self.connect_instructions = f"""
     To connect to {self.name}
@@ -165,6 +170,7 @@ tmux a
     self.tmux_window_id = 0
     self.tmux_available_window_ids = [0]
 
+    # TODO(y): fix escape sequence
     tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
                 f'set-option -g mouse on \; ',
                 f'new-session -s {self.tmux_session} -n 0 -d']
@@ -641,6 +647,7 @@ tmux a
   def file_read(self, remote_fn):
     return self.read(remote_fn)
 
+
 class Job(backend.Job):
   pass
 
@@ -783,6 +790,7 @@ def make_task(
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
+  security_group_nd = u.get_security_group_nd()
   ec2 = u.get_ec2_resource()
 
   instance = u.lookup_instance(name, instance_type,
@@ -810,14 +818,22 @@ def make_task(
       }]
     }]
 
-    #    subnet = u.get_subnet()
-    #    args['NetworkInterfaces'] = [{'SubnetId': subnet.id,
-    #                                  'DeviceIndex': 0,
-    #                                  'AssociatePublicIpAddress': True,
-    #                                  'Groups': [security_group.id]}]
-    #    placement_specs = {'AvailabilityZone': u.get_zone()}
-
+    # use AWS Elastic Fabric Adapter. Must use non-default VPC/subnet.
     placement_specs = {}
+    if util.is_set('NCLUSTER_AWS_EFA'):
+      assert u.instance_supports_efa(instance_type), f"{instance_type} doesn't support EFA"
+      subnet = u.get_subnet()
+      # Because of "AWS Security groups cannot be specified along with network interfaces", have to delete
+      # security group spec from top level args: https://github.com/saltstack/salt/issues/25569
+      args.pop('SecurityGroupIds', None)
+      args['NetworkInterfaces'] = [{'SubnetId': subnet.id,
+                                    'DeviceIndex': 0,
+                                    'AssociatePublicIpAddress': True,
+                                    'DeleteOnTermination': True,
+                                    'InterfaceType': 'efa',
+                                    'Groups': [security_group_nd.id]}]
+      placement_specs['AvailabilityZone'] = u.get_zone()
+
     if placement_group:
       placement_specs['GroupName'] = placement_group
 
@@ -837,7 +853,7 @@ def make_task(
       }]
 
     # Use high throughput disk (0.065/iops-month = about $1/hour)
-    if 'NCLUSTER_AWS_FAST_ROOTDISK' in os.environ:
+    if util.is_set('NCLUSTER_AWS_FAST_ROOTDISK'):
       assert not disk_size, f"Specified both disk_size {disk_size} and $NCLUSTER_AWS_FAST_ROOTDISK, they are incompatible as $NCLUSTER_AWS_FAST_ROOTDISK hardwired disk size"
 
       ebs = {
@@ -1085,9 +1101,11 @@ def _set_aws_environment(task: Task = None):
     assert u.get_session().region_name == current_region  # setting from ~/.aws
 
   # zone is set, set region from zone
-  if current_zone and not current_region:
-    current_region = current_zone[:-1]
-    os.environ['AWS_DEFAULT_REGION'] = current_region
+  if current_zone:
+    new_current_region = current_zone[:-1]
+    if current_region and new_current_region != current_region:
+      print(f"Warning, AWS_DEFAULT_REGION={current_region} conflicts with NCLUSTER_ZONE={current_zone}, changing AWS_DEFAULT_REGION to {new_current_region}")
+    os.environ['AWS_DEFAULT_REGION'] = new_current_region
 
   # neither zone nor region not set, use default setting for region
   # if default is not set, use NCLUSTER_DEFAULT_REGION
@@ -1105,4 +1123,3 @@ def _set_aws_environment(task: Task = None):
 
   log(f"Using account {u.get_account_number()}, region {current_region}, "
       f"zone {current_zone}")
-

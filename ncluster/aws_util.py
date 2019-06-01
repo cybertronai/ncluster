@@ -8,8 +8,12 @@ from collections import OrderedDict
 import paramiko
 from operator import itemgetter
 
-from typing import Iterable, List
+from typing import Iterable, List, Dict, Optional
 
+from boto3_type_annotations.ec2 import SecurityGroup, Vpc, Subnet, InternetGateway, PlacementGroup, Image, \
+  Instance, KeyPairInfo
+from boto3_type_annotations.ec2 import ServiceResource as EC2_ServiceResource
+from boto3_type_annotations.ec2 import Client as EC2_Client
 
 import boto3
 
@@ -27,7 +31,7 @@ DUPLICATE_CHECKING = False
 # https://github.com/boto/boto3/issues/1055
 # https://stackoverflow.com/questions/52087307/adding-type-hinting-to-functions-that-return-boto3-objects
 
-def get_vpc():
+def get_vpc() -> Vpc:
   """
   Returns current VPC (ec2.Vpc object)
   https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#vpc
@@ -36,19 +40,28 @@ def get_vpc():
   return get_vpc_dict()[get_prefix()]
 
 
-def get_security_group():
+def get_security_group() -> SecurityGroup:
   """
   Returns current security group, ec2.SecurityGroup object
   https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#securitygroup
 """
-  return get_security_group_dict()[get_prefix()]
+  return get_security_group_dict()[get_security_group_name()]
 
 
-def get_subnet():
-  return get_subnet_dict()[get_zone()]
+def get_security_group_nd() -> SecurityGroup:
+  """Gets security group associated with non-default VPC"""
+  return get_security_group_dict()[get_security_group_nd_name()]
 
 
-def get_vpc_dict():
+def get_subnet() -> Subnet:
+  zone = get_zone()
+  assert zone, f"Subnet is only defined for zone, current zone is '{zone}', use $NCLUSTER_ZONE to define"
+  subnet_dict = get_subnet_dict()
+  assert zone in subnet_dict, f"zone '{zone}' is not in subnet_dict, available zones are {subnet_dict.keys()}"
+  return subnet_dict[zone]
+
+
+def get_vpc_dict() -> Dict[str, Vpc]:
   """Returns dictionary of named VPCs {name: vpc}
 
   Assert fails if there's more than one VPC with same name."""
@@ -73,7 +86,7 @@ def get_vpc_dict():
   return result
 
 
-def get_default_vpc():
+def get_default_vpc() -> Vpc:
   """
   Return default VPC or none if not present
 
@@ -84,7 +97,7 @@ def get_default_vpc():
       return vpc
 
 
-def get_subnet_dict():
+def get_subnet_dict() -> Dict[str, Subnet]:
   """Returns dictionary of "availability zone" -> subnet for current VPC."""
   subnet_dict = {}
   vpc = get_vpc()
@@ -95,13 +108,13 @@ def get_subnet_dict():
   return subnet_dict
 
 
-def get_gateway_dict(vpc):
+def get_gateway_dict(vpc) -> Dict[str, InternetGateway]:
   """Returns dictionary of named gateways for given VPC {name: gateway}"""
   return {get_name(gateway): gateway for
           gateway in vpc.internet_gateways.all()}
 
 
-def get_efs_dict():
+def get_efs_dict() -> Dict[str, str]:
   """Returns dictionary of {efs_name: efs_id}"""
   # there's no EC2 resource for EFS objects, so return EFS_ID instead
   # https://stackoverflow.com/questions/47870342/no-ec2-resource-for-efs-objects
@@ -127,7 +140,7 @@ def get_efs_dict():
   return result
 
 
-def get_placement_group_dict():
+def get_placement_group_dict() -> Dict[str, PlacementGroup]:
   """Returns dictionary of {placement_group_name: (state, strategy)}"""
 
   client = get_ec2_client()
@@ -146,7 +159,7 @@ def get_placement_group_dict():
   return result
 
 
-def get_security_group_dict():
+def get_security_group_dict() -> Dict[str, SecurityGroup]:
   """Returns dictionary of named security groups {name: securitygroup}."""
 
   client = get_ec2_client()
@@ -169,7 +182,7 @@ def get_security_group_dict():
   return result
 
 
-def get_keypair_dict():
+def get_keypair_dict() -> Dict[str, KeyPairInfo]:
   """Returns dictionary of {keypairname: keypair}"""
 
   client = get_ec2_client()
@@ -188,7 +201,7 @@ def get_keypair_dict():
   return result
 
 
-def get_prefix():
+def get_prefix() -> str:
   """Global prefix to identify ncluster created resources name used to identify ncluster created resources,
   (name of EFS, VPC, keypair prefixes), can be changed through $NCLUSTER_PREFIX for debugging purposes. """
 
@@ -210,7 +223,7 @@ def get_account_number():
       time.sleep(RETRY_INTERVAL_SEC)
 
 
-def get_region():
+def get_region() -> str:
   return get_session().region_name
 
 
@@ -219,7 +232,7 @@ def get_zone() -> str:
   return os.environ.get('NCLUSTER_ZONE', '')
 
 
-def get_zones():
+def get_zones() -> List[str]:
   client = get_ec2_client()
   response = client.describe_availability_zones()
   assert is_good_response(response)
@@ -245,7 +258,7 @@ def get_session():
 # For naming conventions, see
 # https://docs.google.com/document/d/14-zpee6HMRYtEfQ_H_UN9V92bBQOt0pGuRKcEJsxLEA/edit#heading=h.45ok0839c0a
 
-def get_keypair_name():
+def get_keypair_name() -> str:
   """Returns current keypair name."""
 
   username = get_username()
@@ -255,7 +268,7 @@ def get_keypair_name():
   return get_prefix() + '-' + username
 
 
-def get_keypair():
+def get_keypair() -> KeyPairInfo:
   """Returns current keypair (ec2.KeyPairInfo)
 
   https://boto3.readthedocs.io/en/latest/reference/services/ec2.html#keypairinfo
@@ -264,7 +277,7 @@ def get_keypair():
   return get_keypair_dict()[get_keypair_name()]
 
 
-def get_keypair_fn():
+def get_keypair_fn() -> str:
   """Location of .pem file for current keypair"""
 
   keypair_name = get_keypair_name()
@@ -274,35 +287,38 @@ def get_keypair_fn():
   return fn
 
 
-def get_vpc_name():
+def get_vpc_name() -> str:
   return get_prefix()
 
 
-def get_security_group_name():
-  # We have two security groups, ncluster for manually created VPC and
-  # ncluster-default for default VPC. Once default VPC works for all cases, can
-  # get rid of one of security groups
+def get_security_group_name() -> str:
+  """Security group for default VPC"""
   return get_prefix()
 
 
-def get_gateway_name():
+def get_security_group_nd_name() -> str:
+  """Security group for non-default VPC"""
+  return get_prefix()+'_nd'
+
+
+def get_gateway_name() -> str:
   return get_prefix()
 
 
-def get_route_table_name():
+def get_route_table_name() -> str:
   return get_prefix()
 
 
-def get_efs_name():
+def get_efs_name() -> str:
   return get_prefix()
 
 
-def get_username():
+def get_username() -> str:
   assert 'USER' in os.environ, "why isn't USER defined?"
   return os.environ['USER']
 
 
-def lookup_image(wildcard):
+def lookup_image(wildcard) -> Image:
   """Returns unique ec2.Image whose name matches wildcard
   lookup_ami('pytorch*').name => ami-29fa
   
@@ -324,7 +340,7 @@ def lookup_image(wildcard):
   return images[0]
 
 
-def get_aws_username(instance):
+def get_aws_username(instance) -> str:
   image_name = instance.image.name.lower()
   if 'amzn' in image_name or 'amazon' in image_name or image_name == 'dlami23-efa':
     print("Auto-detected Amazon Linux, using ec2-user ssh name")
@@ -335,7 +351,7 @@ def get_aws_username(instance):
 
 def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
                     states: tuple = ('running', 'stopped', 'initializing'),
-                    limit_to_current_user=False):
+                    limit_to_current_user=False) -> Optional[Instance]:
   """Looks up AWS instance for given instance name, like
    simple.worker. If no instance found in current AWS environment, returns None. """
 
@@ -381,7 +397,7 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
 
 
 def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=('running',),
-                     limit_to_current_user=False) -> List:
+                     limit_to_current_user=False) -> List[Instance]:
   """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
   most recent instance first). Optionally filters by key, only including instances launched with
   key_name matching current username.
@@ -442,7 +458,6 @@ def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_state
   return filtered_instance_list
 
 
-
 def ssh_to_task(task) -> paramiko.SSHClient:
   """Create ssh connection to task's machine
 
@@ -475,13 +490,13 @@ def ssh_to_task(task) -> paramiko.SSHClient:
   return ssh_client
 
 
-def parse_key_name(keyname):
+def parse_key_name(keyname) -> List[str]:
   """keyname => resource, username"""
   # Relies on resource name not containing -, validated in
   # validate_resource_name
   toks = keyname.split('-')
   if len(toks) != 2:
-    return None, None  # some other keyname not launched by nexus
+    return []  # some other keyname not launched by nexus
   else:
     return toks
 
@@ -489,7 +504,7 @@ def parse_key_name(keyname):
 aws_name_regexp = re.compile('^[a-zA-Z0-9+-=._:/@]*$')
 
 
-def validate_aws_name(name):
+def validate_aws_name(name) -> None:
   """Validate resource name using AWS name restrictions from # http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/Using_Tags.html#tag-restrictions"""
   assert len(name) <= 127
   # disallow unicode characters to avoid pain
@@ -518,7 +533,7 @@ def create_name_tags(name):
   return [{'Key': 'Name', 'Value': name}]
 
 
-def create_efs(name):
+def create_efs(name) -> str:
   efs_client = get_efs_client()
   token = str(int(time.time() * 1e6))  # epoch usec
 
@@ -643,6 +658,7 @@ def get_instance_property(instance, property_name):
   """Retrieves property of an instance, keeps retrying until getting a non-None"""
 
   name = get_name(instance)
+  value = None
   while True:
     try:
       value = getattr(instance, property_name)
@@ -667,6 +683,7 @@ def get_instance_property(instance, property_name):
 def call_with_retries(method, debug_string='',
                       retry_interval_sec=RETRY_INTERVAL_SEC,
                       **kwargs):
+  value = None
   while True:
     try:
       value = method(**kwargs)
@@ -680,7 +697,7 @@ def call_with_retries(method, debug_string='',
   return value
 
 
-def get_ec2_resource():
+def get_ec2_resource() -> EC2_ServiceResource:
   try:
     client = get_session().resource('ec2')
   except Exception as e:
@@ -690,7 +707,7 @@ def get_ec2_resource():
   return client
 
 
-def get_ec2_client():
+def get_ec2_client() -> EC2_Client:
   try:
     client = get_session().client('ec2')
   except Exception as e:
@@ -808,9 +825,13 @@ def instance_supports_placement_groups(instance_type: str):
   return regex.match(instance_type)
 
 
-def instance_supports_100gbps_network(instance_type: str) -> bool:
-  assert_is_valid_instance(instance_type)
-  return instance_type == 'p3dn.24xlarge'
+def instance_supports_efa(instance_type: str) -> bool:
+  """Checks if instance supports Amazon Elastic Fabric Adapter"""
+  # https://docs.aws.amazon.com/en_us/AWSEC2/latest/UserGuide/efa-start.html
+  return instance_type in ['c5n.18xlarge', 'i3en.24xlarge', 'p3dn.24xlarge']
+
+
+# instance_supports_100gbps_network = instance_supports_efa
 
 
 def assert_is_valid_instance(instance_type: str):
@@ -890,3 +911,5 @@ def wait_on_fulfillment(ec2c, reqs):
       print('Fulfillment completed. InstanceId:', instance_id)
       return instance_id
     return [get_instance_id(req) for req in reqs]
+
+
