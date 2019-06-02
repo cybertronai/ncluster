@@ -531,7 +531,7 @@ tmux a
       maybe_fix_mode(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
-    self.log("downloading %s" % remote_fn)
+    # self.log("downloading %s" % remote_fn)
     # sometimes open_sftp fails with Administratively prohibited, do retries
     # root cause could be too many SSH connections being open
     # https://unix.stackexchange.com/questions/14160/ssh-tunneling-error-channel-1-open-failed-administratively-prohibited-open
@@ -540,7 +540,7 @@ tmux a
                                       'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
-      self.log("downloading %s to %s" % (remote_fn, local_fn))
+      # self.log("downloading %s to %s" % (remote_fn, local_fn))
     remote_fn = remote_fn.replace('~', self.homedir)
     self.sftp.get(remote_fn, local_fn)
 
