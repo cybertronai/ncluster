@@ -100,7 +100,7 @@ def get_default_vpc() -> Vpc:
 def get_subnet_dict() -> Dict[str, Subnet]:
   """Returns dictionary of "availability zone" -> subnet for current VPC."""
   subnet_dict = {}
-  vpc = get_vpc()
+  vpc = get_default_vpc()
   for subnet in vpc.subnets.all():
     zone = subnet.availability_zone
     assert zone not in subnet_dict, "More than one subnet in %s, why?" % (zone,)

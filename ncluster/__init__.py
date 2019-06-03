@@ -28,4 +28,9 @@ if 'NCLUSTER_BACKEND' in os.environ:
 else:
   set_backend('aws')
 
+# print custom settings
+for v in os.environ:
+  if v.startswith('NCLUSTER'):
+    print(f"ncluster special setting {v}={os.environ[v]}")
+
 util.install_pdb_handler()  # CTRL+\ drops into pdb

@@ -119,7 +119,7 @@ class Task:
     Returns:
       False if waiting was was cut short by max_wait_sec limit, True otherwise
     """
-    print("Waiting for file", fn)
+    #    print("Waiting for file", fn)
     start_time = time.time()
     while True:
       if time.time() - start_time > max_wait_sec:
@@ -199,8 +199,8 @@ class Job:
   def logdir(self):
     return self.tasks[0].logdir
 
-  def _non_blocking_wrapper(self, method, *args, **kwargs):
-    """Runs given method on every task in the job. Blocks until all tasks finish. Propagates exception from first
+  def _task_parallel(self, method, *args, **kwargs):
+    """Runs given method on every task in the job in parallel. Blocks until all tasks finish. Propagates exception from first
     failed task."""
 
     exceptions = []
@@ -224,27 +224,27 @@ class Job:
   def run(self, *args, **kwargs):
     """Runs command on every task in the job in parallel, blocks until all tasks finish.
     See Task for documentation of args/kwargs."""
-    return self._non_blocking_wrapper("run", *args, **kwargs)
+    return self._task_parallel("run", *args, **kwargs)
 
   def run_with_output(self, *args, **kwargs):
     """Runs command on every task in the job in parallel, blocks until all tasks finish.
     See Task for documentation of args/kwargs."""
-    return self._non_blocking_wrapper("run_with_output", *args, **kwargs)
+    return self._task_parallel("run_with_output", *args, **kwargs)
 
   
   def rsync(self, *args, **kwargs):
     """See :py:func:`backend.Task.rsync`"""
-    return self._non_blocking_wrapper("rsync", *args, **kwargs)
+    return self._task_parallel("rsync", *args, **kwargs)
 
   def upload(self, *args, **kwargs):
     """See :py:func:`backend.Task.upload`"""
-    return self._non_blocking_wrapper("upload", *args, **kwargs)
+    return self._task_parallel("upload", *args, **kwargs)
 
   def write(self, *args, **kwargs):
-    return self._non_blocking_wrapper("write", *args, **kwargs)
+    return self._task_parallel("write", *args, **kwargs)
 
   def _run_raw(self, *args, **kwargs):
-    return self._non_blocking_wrapper("_run_raw", *args, **kwargs)
+    return self._task_parallel("_run_raw", *args, **kwargs)
 
 
 # Implementation needs to be backend specific so that run.create_job calls backend-specific method

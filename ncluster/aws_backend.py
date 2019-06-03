@@ -811,7 +811,7 @@ def make_task(
   image = u.lookup_image(image_name)
   keypair = u.get_keypair()
   security_group = u.get_security_group()
-  security_group_nd = u.get_security_group_nd()
+  #  security_group_nd = u.get_security_group_nd()
   ec2 = u.get_ec2_resource()
 
   instance = u.lookup_instance(name, instance_type,
@@ -839,13 +839,8 @@ def make_task(
       }]
     }]
 
-    # use AWS Elastic Fabric Adapter. Must use non-default VPC/subnet.
-    if u.instance_supports_efa(instance_type):
-      assert util.is_set('NCLUSTER_AWS_EFA'), "Using EFA-enabled instance but no EFA, are you sure?"
-
     placement_specs = {}
-    if util.is_set('NCLUSTER_AWS_EFA'):
-      assert u.instance_supports_efa(instance_type), f"{instance_type} doesn't support EFA"
+    if u.instance_supports_efa(instance_type):
       subnet = u.get_subnet()
       # Because of "AWS Security groups cannot be specified along with network interfaces", have to delete
       # security group spec from top level args: https://github.com/saltstack/salt/issues/25569
@@ -855,7 +850,7 @@ def make_task(
                                     'AssociatePublicIpAddress': True,
                                     'DeleteOnTermination': True,
                                     'InterfaceType': 'efa',
-                                    'Groups': [security_group_nd.id]}]
+                                    'Groups': [security_group.id]}]
       placement_specs['AvailabilityZone'] = u.get_zone()
 
     if placement_group:
