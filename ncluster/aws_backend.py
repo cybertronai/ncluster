@@ -521,7 +521,7 @@ tmux a
     if not remote_fn:
       remote_fn = os.path.basename(local_fn)
 
-    self.log('uploading ' + local_fn + ' to ' + remote_fn)
+    # self.log('uploading ' + local_fn + ' to ' + remote_fn)
     remote_fn = remote_fn.replace('~', self.homedir)
 
     if '/' in remote_fn:
@@ -832,6 +832,9 @@ def make_task(
     }]
 
     # use AWS Elastic Fabric Adapter. Must use non-default VPC/subnet.
+    if u.instance_supports_efa(instance_type):
+      assert util.is_set('NCLUSTER_AWS_EFA'), "Using EFA-enabled instance but no EFA, are you sure?"
+
     placement_specs = {}
     if util.is_set('NCLUSTER_AWS_EFA'):
       assert u.instance_supports_efa(instance_type), f"{instance_type} doesn't support EFA"
