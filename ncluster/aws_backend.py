@@ -145,8 +145,11 @@ class Task(backend.Task):
         assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
 
     if not ncluster_globals.should_skip_setup():
-      if not util.is_set('NCLUSTER_AWS_NOEFS'):
+      if not util.is_set("NCLUSTER_AWS_NOEFS"):
         self._mount_efs()
+      else:
+        util.log("Skipping EFS mount")
+      self._mount_tmpfs()
 
     self.connect_instructions = f"""
     To connect to {self.name}
@@ -227,8 +230,11 @@ tmux a
     # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
     # this would ensure that commands being sent are not being swallowed
 
-    # also mount tmpfs if instance has enough memory
+  def _mount_tmpfs(self):
+    #  mount tmpfs if instance has enough memory
     # Mem:      503609216     1354612   478348012        9132    23906592   500624992
+    util.log(f"Mounting tmpfs")
+
     stdout, stderr = self.run_with_output('free -t -g')
     for line in stdout.split('\n'):
       if line.startswith('Mem'):
@@ -237,8 +243,10 @@ tmux a
     free_gb = int(line.split()[3])
     util.log(f"Instance has {free_gb} GB of free memory")
     if free_gb > 10:
-      util.log(f"Mounting tmpfs")
       self.run("sudo mkdir -p /tmpfs && sudo chown `whoami` /tmpfs && sudo mount -t tmpfs -o size=1g tmpfs /tmpfs")
+      util.log('tmpfs mounted at /tmpfs')
+    else:
+      util.log(f"Instance has only {free_gb} GB of memory, skipping tmpfs mount")
 
   def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
