@@ -126,7 +126,7 @@ def ssh(fragment=''):
 
   _user_keypair_check(instance)
   user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ServerAliveCountMax=1 " \
-             f"-o ServerAliveInterval=60" \
+             f"-o ServerAliveInterval=60 " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address} " \
              f"tmux attach"
   print(user_cmd)
@@ -164,7 +164,9 @@ def old_ssh(fragment=''):
           f"launched by {instance.key_name}")
 
   _user_keypair_check(instance)
-  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ConnectTimeout=30 " \
+  user_cmd = f"ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
+             f"-o ServerAliveCountMax=1 " \
+             f"-o ServerAliveInterval=60 " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address}"
   print(user_cmd)
   os.system(user_cmd)
@@ -223,7 +225,8 @@ def stop(fragment=''):
   if not _check_instance_found(instances, fragment):
     return
 
-  answer = input(f"{len(instances)} instances found, {action} in {u.get_region()}? (y/N) ")
+  #  answer = input(f"{len(instances)} instances found, {action} in {u.get_region()}? (y/N) ")
+  answer = 'y'
 
   ec2_client = u.get_ec2_client()
   if answer.lower() == "y":
