@@ -227,6 +227,19 @@ tmux a
     # TODO(y): build a pstree and warn if trying to run something while main tmux bash has a subprocess running
     # this would ensure that commands being sent are not being swallowed
 
+    # also mount tmpfs if instance has enough memory
+    # Mem:      503609216     1354612   478348012        9132    23906592   500624992
+    stdout, stderr = self.run_with_output('free -t -g')
+    for line in stdout.split('\n'):
+      if line.startswith('Mem'):
+        break
+
+    free_gb = int(line.split()[3])
+    util.log(f"Instance has {free_gb} GB of free memory")
+    if free_gb > 10:
+      util.log(f"Mounting tmpfs")
+      self.run("sudo mkdir -p /tmpfs && sudo chown `whoami` /tmpfs && sudo mount -t tmpfs -o size=1g tmpfs /tmpfs")
+
   def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2):
