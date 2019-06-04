@@ -1069,9 +1069,9 @@ def _maybe_create_resources(logging_task: Task = None):
       return True
     return False
 
-  util.log(f"Acquiring lock on {AWS_LOCK_FN}")
+  util.log(f"Acquiring AWS resource creation lock {AWS_LOCK_FN}")
   with portalocker.Lock(AWS_LOCK_FN, timeout=3600*24*365) as _fh:
-    util.log(f"lock acquired")
+    util.log(f"Success, AWS resource creation lock {AWS_LOCK_FN} acquired")
     create_lib.create_resources()
 
     # _fh.flush()

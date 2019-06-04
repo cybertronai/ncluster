@@ -662,7 +662,10 @@ def get_instance_property(instance, property_name):
 
   name = get_name(instance)
   value = None
+  start_time = time.time()
   while True:
+    if time.time() - start_time > RETRY_TIMEOUT_SEC:
+      assert False, f"Timeout {RETRY_TIMEOUT_SEC} exceeded quering {get_instance_property} on {instance}"
     try:
       value = getattr(instance, property_name)
       if value is not None:
@@ -690,14 +693,14 @@ def call_with_retries(method, debug_string='',
   start_time = time.time()
   value = None
   while True:
-    if time.time() - start_time - retry_interval_sec > retry_timeout_sec:
+    if time.time() - start_time > retry_timeout_sec:
       assert False, f"Timeout {retry_timeout_sec} exceeded calling {method.__name__}"
     try:
       value = method(**kwargs)
       assert value is not None, f"{debug_string} was None"
       break
     except Exception as e:
-      print(f"{debug_string} failed with {e.__class__}({e}), retrying")
+      print(f"{debug_string} failed with {e.__class__}({e}), retrying for another {retry_timeout_sec - (time.time() - start_time)} seconds")
       time.sleep(retry_interval_sec)
       continue
 
