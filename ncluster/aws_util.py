@@ -345,7 +345,7 @@ def lookup_image(wildcard) -> Image:
   #  images = list(ec2.images.filter_(Filters = [filter_], Owners=['self', 'amazon']))
 
   assert len(images) <= 1, "Multiple images match " + str(wildcard)
-  assert len(images) > 0, f"No images match {str(wildcard)}, check name and image permissions"
+  assert len(images) > 0, f"No images match {str(wildcard)} in {get_region()}, check name and image permissions"
   return images[0]
 
 
@@ -931,4 +931,4 @@ def wait_on_fulfillment(ec2c, reqs):
 
 def assert_zone_specific_config():
   """Make sure user specified zone"""
-  assert get_zone(), "EFA requires selecting a zone, ie set NCLUSTER_ZONE=us-east-1b"
+  assert get_zone(), f"EFA requires launching into specific zone, but zone not specified, could set NCLUSTER_ZONE={get_region()}a"

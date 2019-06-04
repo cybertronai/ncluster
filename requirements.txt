@@ -1,4 +1,4 @@
-boto3
+boto3>=1.9.159   # needed for InterfaceType in create_instances
 boto3_type_annotations # for dev use boto3_type_annotations_with_docs
 paramiko
 portalocker

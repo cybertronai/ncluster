@@ -806,7 +806,6 @@ def make_task(
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
                                 GENERIC_SMALL_IMAGE)
-  log("Using image " + image_name)
 
   if preemptible is None:
     preemptible = os.environ.get('NCLUSTER_PREEMPTIBLE', False)
@@ -815,6 +814,7 @@ def make_task(
       log("Using preemptible instances")
 
   image = u.lookup_image(image_name)
+  log(f"Using image '{image_name}' ({image.id})")
   keypair = u.get_keypair()
   security_group = u.get_security_group()
   #  security_group_nd = u.get_security_group_nd()
@@ -902,8 +902,7 @@ def make_task(
         instances = ec2.create_instances(**args)
     except Exception as e:
       log(f"Instance creation for {name} failed with ({e})")
-      log(
-        "You can change availability zone using export NCLUSTER_ZONE=...")
+      # log("You can change availability zone using export NCLUSTER_ZONE=...")
       log("Terminating")
       os.kill(os.getpid(),
               signal.SIGINT)  # sys.exit() doesn't work inside thread
