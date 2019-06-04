@@ -336,7 +336,7 @@ def lookup_image(wildcard) -> Image:
   #  images = list(ec2.images.filter_(Filters = [filter_], Owners=['self', 'amazon']))
 
   assert len(images) <= 1, "Multiple images match " + str(wildcard)
-  assert len(images) > 0, "No images match " + str(wildcard)
+  assert len(images) > 0, f"No images match {str(wildcard)}, check name and image permissions"
   return images[0]
 
 

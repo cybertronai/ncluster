@@ -37,7 +37,7 @@ PUBLIC_TCP_RANGES = [
 PUBLIC_UDP_RANGES = [NFS_PORT, (60000, 61000)]  # mosh ports
 
 
-def network_setup() -> Tuple[Any, Any, Any]:
+def network_setup() -> Tuple[Any, Any]:
   """Creates VPC if it doesn't already exists, configures it for public
   internet access, returns vpc, subnet, security_group"""
 
@@ -49,96 +49,99 @@ def network_setup() -> Tuple[Any, Any, Any]:
   zones = u.get_zones()
 
   # create VPC from scratch. Remove this if default VPC works well enough.
-  vpc_name = u.get_vpc_name()
-  if u.get_vpc_name() in existing_vpcs:
-    print("Reusing VPC " + vpc_name)
-    vpc = existing_vpcs[vpc_name]
-    subnets = list(vpc.subnets.all())
-    assert len(subnets) == len(
-      zones), "Has %s subnets, but %s zones, something went wrong during resource creation, try delete_resources.py/create_resources.py" % (
-      len(subnets), len(zones))
+  create_non_default_vpc = False
 
-  else:
-    print("Creating VPC " + vpc_name)
-    vpc = ec2.create_vpc(CidrBlock='192.168.0.0/16')
+  if create_non_default_vpc:
+    vpc_name = u.get_vpc_name()
+    if u.get_vpc_name() in existing_vpcs:
+      print("Reusing VPC " + vpc_name)
+      vpc = existing_vpcs[vpc_name]
+      subnets = list(vpc.subnets.all())
+      assert len(subnets) == len(
+        zones), "Has %s subnets, but %s zones, something went wrong during resource creation, try delete_resources.py/create_resources.py" % (
+        len(subnets), len(zones))
 
-    # enable DNS on the VPC
-    response = vpc.modify_attribute(EnableDnsHostnames={"Value": True})
-    assert u.is_good_response(response)
-    response = vpc.modify_attribute(EnableDnsSupport={"Value": True})
-    assert u.is_good_response(response)
-
-    vpc.create_tags(Tags=u.create_name_tags(vpc_name))
-    vpc.wait_until_available()
-
-  gateways = u.get_gateway_dict(vpc)
-  gateway_name = u.get_gateway_name()
-  if gateway_name in gateways:
-    print("Reusing gateways " + gateway_name)
-  else:
-    print("Creating internet gateway " + gateway_name)
-    ig = ec2.create_internet_gateway()
-    ig.attach_to_vpc(VpcId=vpc.id)
-    ig.create_tags(Tags=u.create_name_tags(gateway_name))
-
-    # check that attachment succeeded
-    attach_state = u.extract_attr_for_match(ig.attachments, State=-1,
-                                            VpcId=vpc.id)
-    assert attach_state == 'available', "vpc %s is in state %s" % (vpc.id,
-                                                                   attach_state)
-    route_table = vpc.create_route_table()
-    route_table_name = u.get_route_table_name()
-    route_table.create_tags(Tags=u.create_name_tags(route_table_name))
-
-    dest_cidr = '0.0.0.0/0'
-    route_table.create_route(
-      DestinationCidrBlock=dest_cidr,
-      GatewayId=ig.id
-    )
-    # check success
-    for route in route_table.routes:
-      # result looks like this
-      # ec2.Route(route_table_id='rtb-a8b438cf',
-      #    destination_cidr_block='0.0.0.0/0')
-      if route.destination_cidr_block == dest_cidr:
-        break
     else:
-      # sometimes get
-      #      AssertionError: Route for 0.0.0.0/0 not found in [ec2.Route(route_table_id='rtb-cd9153b0', destination_cidr_block='192.168.0.0/16')]
-      # TODO: add a wait/retry?
-      assert False, "Route for %s not found in %s" % (dest_cidr,
-                                                      route_table.routes)
+      print("Creating VPC " + vpc_name)
+      vpc = ec2.create_vpc(CidrBlock='192.168.0.0/16')
 
-    assert len(zones) <= 16  # for cidr/20 to fit into cidr/16
-    ip = 0
-    for zone in zones:
-      cidr_block = '192.168.%d.0/20' % (ip,)
-      ip += 16
-      print("Creating subnet %s in zone %s" % (cidr_block, zone))
-      subnet = vpc.create_subnet(CidrBlock=cidr_block,
-                                 AvailabilityZone=zone)
-      subnet.create_tags(Tags=[{'Key': 'Name', 'Value': f'{vpc_name}-subnet'},
-                               {'Key': 'Region', 'Value': zone}])
-      response = client.modify_subnet_attribute(
-        MapPublicIpOnLaunch={'Value': True},
-        SubnetId=subnet.id
-      )
+      # enable DNS on the VPC
+      response = vpc.modify_attribute(EnableDnsHostnames={"Value": True})
       assert u.is_good_response(response)
-      u.wait_until_available(subnet)
-      assert subnet.map_public_ip_on_launch, "Subnet doesn't enable public IP by default, why?"
+      response = vpc.modify_attribute(EnableDnsSupport={"Value": True})
+      assert u.is_good_response(response)
 
-      route_table.associate_with_subnet(SubnetId=subnet.id)
+      vpc.create_tags(Tags=u.create_name_tags(vpc_name))
+      vpc.wait_until_available()
 
-  # Setup security group for non-default VPC
-  existing_security_groups = u.get_security_group_dict()
-  security_group_nd_name = u.get_security_group_nd_name()
-  if security_group_nd_name in existing_security_groups:
-    print("Reusing non-default security group " + security_group_nd_name)
-    security_group_nd = existing_security_groups[security_group_nd_name]
-    assert security_group_nd.vpc_id == vpc.id, f"Found non-default security group {security_group_nd} " \
-                                               f"attached to {security_group_nd.vpc_id} but expected {vpc.id}"
-  else:
-    security_group_nd = create_security_group(security_group_nd_name, vpc.id)
+    gateways = u.get_gateway_dict(vpc)
+    gateway_name = u.get_gateway_name()
+    if gateway_name in gateways:
+      print("Reusing gateways " + gateway_name)
+    else:
+      print("Creating internet gateway " + gateway_name)
+      ig = ec2.create_internet_gateway()
+      ig.attach_to_vpc(VpcId=vpc.id)
+      ig.create_tags(Tags=u.create_name_tags(gateway_name))
+
+      # check that attachment succeeded
+      attach_state = u.extract_attr_for_match(ig.attachments, State=-1,
+                                              VpcId=vpc.id)
+      assert attach_state == 'available', "vpc %s is in state %s" % (vpc.id,
+                                                                     attach_state)
+      route_table = vpc.create_route_table()
+      route_table_name = u.get_route_table_name()
+      route_table.create_tags(Tags=u.create_name_tags(route_table_name))
+
+      dest_cidr = '0.0.0.0/0'
+      route_table.create_route(
+        DestinationCidrBlock=dest_cidr,
+        GatewayId=ig.id
+      )
+      # check success
+      for route in route_table.routes:
+        # result looks like this
+        # ec2.Route(route_table_id='rtb-a8b438cf',
+        #    destination_cidr_block='0.0.0.0/0')
+        if route.destination_cidr_block == dest_cidr:
+          break
+      else:
+        # sometimes get
+        #      AssertionError: Route for 0.0.0.0/0 not found in [ec2.Route(route_table_id='rtb-cd9153b0', destination_cidr_block='192.168.0.0/16')]
+        # TODO: add a wait/retry?
+        assert False, "Route for %s not found in %s" % (dest_cidr,
+                                                        route_table.routes)
+
+      assert len(zones) <= 16  # for cidr/20 to fit into cidr/16
+      ip = 0
+      for zone in zones:
+        cidr_block = '192.168.%d.0/20' % (ip,)
+        ip += 16
+        print("Creating subnet %s in zone %s" % (cidr_block, zone))
+        subnet = vpc.create_subnet(CidrBlock=cidr_block,
+                                   AvailabilityZone=zone)
+        subnet.create_tags(Tags=[{'Key': 'Name', 'Value': f'{vpc_name}-subnet'},
+                                 {'Key': 'Region', 'Value': zone}])
+        response = client.modify_subnet_attribute(
+          MapPublicIpOnLaunch={'Value': True},
+          SubnetId=subnet.id
+        )
+        assert u.is_good_response(response)
+        u.wait_until_available(subnet)
+        assert subnet.map_public_ip_on_launch, "Subnet doesn't enable public IP by default, why?"
+
+        route_table.associate_with_subnet(SubnetId=subnet.id)
+
+  #  Setup security group for non-default VPC
+  #  existing_security_groups = u.get_security_group_dict()
+  #  security_group_nd_name = u.get_security_group_nd_name()
+  # if security_group_nd_name in existing_security_groups:
+  #   print("Reusing non-default security group " + security_group_nd_name)
+  #   security_group_nd = existing_security_groups[security_group_nd_name]
+  #   assert security_group_nd.vpc_id == vpc.id, f"Found non-default security group {security_group_nd} " \
+  #                                              f"attached to {security_group_nd.vpc_id} but expected {vpc.id}"
+  # else:
+  #   security_group_nd = create_security_group(security_group_nd_name, vpc.id)
 
   # Setup things on default VPC for zone-agnostic launching
   vpc = u.get_default_vpc()
@@ -156,9 +159,9 @@ def network_setup() -> Tuple[Any, Any, Any]:
     assert security_group.vpc_id == vpc.id, f"Found security group {security_group} " \
                                             f"attached to {security_group.vpc_id} but expected {vpc.id}"
   else:
-    security_group = create_security_group(security_group_name, vpc.id, security_group_nd)
+    security_group = create_security_group(security_group_name, vpc.id)
 
-  return vpc, security_group, security_group_nd
+  return vpc, security_group
 
 
 def keypair_setup():
@@ -305,7 +308,7 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
 def create_resources():
   print(f"Creating {u.get_prefix()} resources in region {u.get_region()}")
 
-  vpc, security_group, security_group_nd = network_setup()
+  vpc, security_group = network_setup()
   keypair_setup()  # saves private key locally to keypair_fn
 
   # create EFS
