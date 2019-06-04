@@ -1070,12 +1070,12 @@ def _maybe_create_resources(logging_task: Task = None):
     return False
 
   util.log(f"Acquiring lock on {AWS_LOCK_FN}")
-  with portalocker.Lock(AWS_LOCK_FN, 'rb+', timeout=3600*24*365) as fh:
+  with portalocker.Lock(AWS_LOCK_FN, timeout=3600*24*365) as _fh:
     util.log(f"lock acquired")
     create_lib.create_resources()
 
-    fh.flush()
-    os.fsync(fh.fileno())
+    # _fh.flush()
+    # _os.fsync(fh.fileno())
 
 
 def _set_aws_environment(task: Task = None):

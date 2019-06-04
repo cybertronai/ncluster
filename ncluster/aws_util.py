@@ -21,7 +21,7 @@ from . import util
 
 EMPTY_NAME = "noname"  # name to use when name attribute is missing on AWS
 RETRY_INTERVAL_SEC = 1  # how long to wait before retries
-RETRY_TIMEOUT_SEC = 30  # how long to wait before retrying fails
+RETRY_TIMEOUT_SEC = 60  # how long to wait before retrying fails
 DEFAULT_PREFIX = 'ncluster'
 PRIVATE_KEY_LOCATION = os.environ['HOME'] + '/.ncluster'
 DUPLICATE_CHECKING = False
@@ -212,6 +212,7 @@ def get_prefix() -> str:
 
 
 def get_account_number():
+  start_time = time.time()
   while True:
     try:
       return str(boto3.client('sts').get_caller_identity()['Account'])
@@ -221,6 +222,9 @@ def get_account_number():
         util.log(
           'AWS_SECRET_ACCESS_KEY not in env vars, configure your AWS credentials."')
       time.sleep(RETRY_INTERVAL_SEC)
+
+    if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
+      assert False, "Timeout exceeded querying account number"
 
 
 def get_region() -> str:
@@ -560,7 +564,7 @@ def create_efs(name) -> str:
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
       assert False, "Timeout exceeded creating EFS %s (%s)" % (token, name)
 
-    time.sleep(RETRY_TIMEOUT_SEC)
+    time.sleep(RETRY_INTERVAL_SEC)
 
   # find efs id from given token
   response = efs_client.describe_file_systems()
