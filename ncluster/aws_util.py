@@ -929,3 +929,6 @@ def wait_on_fulfillment(ec2c, reqs):
     return [get_instance_id(req) for req in reqs]
 
 
+def assert_zone_specific_config():
+  """Make sure user specified zone"""
+  assert get_zone(), "EFA requires selecting a zone, ie set NCLUSTER_ZONE=us-east-1b"

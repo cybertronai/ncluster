@@ -847,6 +847,8 @@ def make_task(
 
     placement_specs = {}
     if u.instance_supports_efa(instance_type):
+      u.assert_zone_specific_config()
+
       subnet = u.get_subnet()
       # Because of "AWS Security groups cannot be specified along with network interfaces", have to delete
       # security group spec from top level args: https://github.com/saltstack/salt/issues/25569
