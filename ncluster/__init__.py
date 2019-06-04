@@ -33,4 +33,5 @@ for v in os.environ:
   if v.startswith('NCLUSTER'):
     print(f"ncluster special setting {v}={os.environ[v]}")
 
-util.install_pdb_handler()  # CTRL+\ drops into pdb
+if not util.is_set('NCLUSTER_DISABLE_PDB_HANDLER'):
+  util.install_pdb_handler()  # CTRL+\ drops into pdb

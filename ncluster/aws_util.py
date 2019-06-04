@@ -213,18 +213,22 @@ def get_prefix() -> str:
 
 def get_account_number():
   start_time = time.time()
-  while True:
+  success = False
+  for i in range(3):
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
       assert False, "Timeout exceeded querying account number"
     try:
-      return str(boto3.client('sts').get_caller_identity()['Account'])
+      account_number = str(boto3.client('sts').get_caller_identity()['Account'])
+      success = True
     except Exception as e:
       util.log(f'Exception in get_account_number {e}, retrying')
       if 'AWS_SECRET_ACCESS_KEY' not in os.environ:
         util.log(
           'AWS_SECRET_ACCESS_KEY not in env vars, configure your AWS credentials."')
       time.sleep(RETRY_INTERVAL_SEC)
-
+  public_key = os.environ.get('AWS_ACCESS_KEY_ID', 'unknown_access_key')
+  if not success:
+    assert False, f"Could access account, make sure you have correct credentials for region {get_region()} and key {public_key}"
 
 def get_region() -> str:
   return get_session().region_name

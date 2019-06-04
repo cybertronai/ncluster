@@ -236,12 +236,17 @@ tmux a
     # Mem:      503609216     1354612   478348012        9132    23906592   500624992
     util.log(f"Mounting tmpfs")
 
+    line = ''   # silence the linters
     stdout, stderr = self.run_with_output('free -t -g')
     for line in stdout.split('\n'):
       if line.startswith('Mem'):
         break
 
-    free_gb = int(line.split()[3])
+    try:
+      free_gb = int(line.split()[3])
+    except Exception:
+      assert False, "can't parse output of free: {stdout}"
+
     util.log(f"Instance has {free_gb} GB of free memory")
     if free_gb > 10:
       self.run("sudo mkdir -p /tmpfs && sudo chown `whoami` /tmpfs && sudo mount -t tmpfs -o size=1g tmpfs /tmpfs")
