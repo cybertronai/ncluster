@@ -1,12 +1,6 @@
-portalocker
-pytz
-wrapt
-ray
-numpy
-torch
-tensorflow
 boto3
-boto3_type_annotations_with_docs  # this is 40MB, replace with boto3_type_annotations for production
+boto3_type_annotations # for dev use boto3_type_annotations_with_docs
 paramiko
+portalocker
 portpicker
-tzlocal
+pytz
