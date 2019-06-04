@@ -1074,6 +1074,10 @@ def _maybe_create_resources(logging_task: Task = None):
       return True
     return False
 
+  if not should_create_resources() and not util.is_set('NCLUSTER_AWS_FORCE_CREATE_RESOURCES'):
+    util.log("Resources probably already created, skipping. Use NCLUSTER_AWS_FORCE_CREATE_RESOURCES to force")
+    return
+
   util.log(f"Acquiring AWS resource creation lock {AWS_LOCK_FN}")
   with portalocker.Lock(AWS_LOCK_FN, timeout=3600*24*365) as _fh:
     util.log(f"Success, AWS resource creation lock {AWS_LOCK_FN} acquired")

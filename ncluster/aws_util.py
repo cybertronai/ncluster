@@ -211,7 +211,7 @@ def get_prefix() -> str:
   return name
 
 
-def get_account_number():
+def get_account_number() -> str:
   start_time = time.time()
   success = False
   for i in range(3):
@@ -229,6 +229,8 @@ def get_account_number():
   public_key = os.environ.get('AWS_ACCESS_KEY_ID', 'unknown_access_key')
   if not success:
     assert False, f"Could access account, make sure you have correct credentials for region {get_region()} and key {public_key}"
+  return account_number
+
 
 def get_region() -> str:
   return get_session().region_name
