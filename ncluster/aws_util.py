@@ -214,6 +214,8 @@ def get_prefix() -> str:
 def get_account_number():
   start_time = time.time()
   while True:
+    if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
+      assert False, "Timeout exceeded querying account number"
     try:
       return str(boto3.client('sts').get_caller_identity()['Account'])
     except Exception as e:
@@ -222,9 +224,6 @@ def get_account_number():
         util.log(
           'AWS_SECRET_ACCESS_KEY not in env vars, configure your AWS credentials."')
       time.sleep(RETRY_INTERVAL_SEC)
-
-    if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
-      assert False, "Timeout exceeded querying account number"
 
 
 def get_region() -> str:
@@ -686,9 +685,13 @@ def get_instance_property(instance, property_name):
 
 def call_with_retries(method, debug_string='',
                       retry_interval_sec=RETRY_INTERVAL_SEC,
+                      retry_timeout_sec=RETRY_TIMEOUT_SEC,
                       **kwargs):
+  start_time = time.time()
   value = None
   while True:
+    if time.time() - start_time - retry_interval_sec > retry_timeout_sec:
+      assert False, f"Timeout {retry_timeout_sec} exceeded calling {method.__name__}"
     try:
       value = method(**kwargs)
       assert value is not None, f"{debug_string} was None"
