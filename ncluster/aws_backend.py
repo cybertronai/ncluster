@@ -111,8 +111,6 @@ class Task(backend.Task):
 
     os.system('mkdir -p ' + self.local_scratch)
 
-    self._initialized_fn = f'is_initialized'
-
     # _current_directory tracks current directory on task machine
     # used for uploading without specifying absolute path on target machine
     if self._linux_type == 'ubuntu':
@@ -131,41 +129,109 @@ class Task(backend.Task):
 
     self._can_run = True
 
-    if self._is_initialized_fn_present():
-      self.log("reusing previous initialized state")
+    # Macine setup has two parts
+    # 1. running user commands specified in Task "install_script" argument, successful completion writes to _install_script_fn
+    # 2. executing launcher logic such as mounting EFS, setting up security keys, successful completion writes to _is_initialized_fn
+    #
+    # New task creation will check for those two files and skip corresponding setup tasks if present
+    # Global variable NCLUSTER_FORCE_SETUP will force both parts to rerun
+    # task level kwarg skip_setup will allow skipping parts of setup regardless of previous setup runs succeeding
+    # TODO(y): get rid of skip_setup kwarg, it's a rare case that can be set through env var
+
+    self._initialized_fn = f'_ncluster_initialized'         # user initialization
+    self._install_script_fn = f'_ncluster_install_script'   # launcher initialiation
+
+    # Part 1: user initialization
+    if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
+      self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
     else:
       self.log("running install script")
 
       # bin/bash needed to make self-executable or use with UserData
       self.install_script = '#!/bin/bash\n' + self.install_script
-      self.install_script += f'\necho ok > {self._initialized_fn}\n'
+      self.install_script += f'\necho ok > {self._install_script_fn}\n'
       self.file_write('install.sh', util.shell_add_echo(self.install_script))
       self.run('bash -e install.sh')  # fail on errors
+      assert self._is_install_script_fn_present(), f"Install script didn't write to {self._install_script_fn}"
 
-      if not ncluster_globals.should_skip_setup():
-        assert self._is_initialized_fn_present(), f"Install script didn't write to {self._initialized_fn}"
+    assert not (ncluster_globals.should_skip_setup() and util.is_set('NCLUSTER_FORCE_SETUP')), f"User setting NCLUSTER_FORCE_SETUP is enabled, but API requested task with no setup, unset NCLUSTER_FORCE_SETUP and try again."
 
-    if not ncluster_globals.should_skip_setup():
-      if not util.is_set("NCLUSTER_AWS_NOEFS"):
+    # Part 2: launcher initialization
+    if ncluster_globals.should_skip_setup():  # API-level flag ..make_task(..., skip_setup=True)
+      should_run_setup = False
+    elif util.is_set('NCLUSTER_FORCE_SETUP'):
+      should_run_setup = True
+    elif self._is_initialized_fn_present():
+      should_run_setup = False              # default settings + reusing previous machine
+    else:
+      should_run_setup = True               # default settings + new machine
+
+    if should_run_setup:
+      stdout, stderr = self.run_with_output('df')
+      if '/ncluster' in stdout:
+        self.log("Detected ncluster EFS")
+      elif not util.is_set("NCLUSTER_AWS_NOEFS"):
         self._mount_efs()
       else:
         util.log("Skipping EFS mount")
-      self._mount_tmpfs()
 
-    self.connect_instructions = f"""
-    To connect to {self.name}
-ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no {self.ssh_username}@{self.public_ip}
-tmux a
-""".strip()
+      if '/tmpfs' in stdout:
+        self.log("Detected ncluster tmpfs")
+      else:
+        self._mount_tmpfs()
+
+      ##########################################
+      # SSH setup
+      ##########################################
+      # 1) wait for keypair to be created (done by chief task)
+      # 2) append public key to NCLUSTER_AUTHORIZED_KEYS
+      # 3) propagate NCLUSTER_AUTHORIZED_KEYS to target machine and update ~/.ssh/authorized_keys
+
+      # 1. wait for keypair creation
+      success = util.wait_for_file(util.ID_RSA_PUB)  # wait for chief task to create keypair
+      assert success, f"Couldn't find {util.ID_RSA_PUB}"
+
+      # 2. concat local public key with extra keys in NCLUSTER_AUTHORIZED_KEYS
+      auth_keys_env_var_str = util.get_authorized_keys()
+
+      # 3. dedup NCLUSTER_AUTHORIZED_KEYS and add to task environment + its ~/.ssh/authorized_keys
+      auth_keys_file_str = ''
+      seen_keys = set()
+      for key in auth_keys_env_var_str.split(';'):
+        if not key or key in seen_keys:
+          continue
+        seen_keys.add(key)
+        auth_keys_file_str += key + '\n'
+      self.run(f"""echo "{auth_keys_file_str}" >> ~/.ssh/authorized_keys""")
+
+    self.run(f'export NCLUSTER_AUTHORIZED_KEYS="{util.get_authorized_keys()}"')
+
+    self.connect_instructions = f"""To connect to {self.name}
+    ssh {self.ssh_username}@{self.public_ip}
+    tmux a
+    """.strip()
+
+    self.write(self._initialized_fn, 'ok')
     self.log("Initialize complete")
     self.log(self.connect_instructions)
 
   def _is_initialized_fn_present(self):
-    self.log("Checking for initialization status")
+    present = False
     try:
-      return 'ok' in self.read(self._initialized_fn)
+      present = 'ok' in self.read(self._initialized_fn)
     except Exception:
-      return False
+      pass
+    self.log(f"Checking for initialized status: {present}")
+    return present
+
+  def _is_install_script_fn_present(self):
+    present = False
+    try:
+      present = 'ok' in self.read(self._install_script_fn)
+    except Exception:
+      pass
+    self.log(f"Checking for install_script status: {present}")
+    return present
 
   def _setup_tmux(self):
     self.log("Setting up tmux")
@@ -196,8 +262,12 @@ tmux a
 
     self._can_run = True
 
+  def _is_efs_mounted(self):
+    stdout, stderr = self.run_with_output('df')
+    return '/ncluster' in stdout
+
   def _mount_efs(self):
-    self.log("Mounting EFS")
+    self.log("Mounting ncluster EFS")
     region = u.get_region()
     efs_id = u.get_efs_dict()[u.get_prefix()]
     dns = f"{efs_id}.efs.{region}.amazonaws.com"
@@ -750,6 +820,7 @@ def make_task(
         logging_task: backend.Task = None,
         create_resources=True,
         spot=False,
+        is_chief=True,
         **_kwargs
 ) -> Task:
   """
@@ -769,6 +840,7 @@ def make_task(
     instance_type: instance type to use, defaults to $NCLUSTER_INSTANCE or t3.micro if unset
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
     logging_task: partially initialized Task object, use it for logging
+    is_chief: if True, this is the task is charge of taking care of common configuration that only needs to be done once per run, such generating security key
 
   Returns:
 
@@ -781,6 +853,9 @@ def make_task(
       logging_task.log(*_args)
     else:
       util.log(*_args)
+
+  if is_chief:
+    util.setup_local_ssh_keys()
 
   # if name not specified, use name which is the same across script invocations for given image/instance-type
   name = ncluster_globals.auto_assign_task_name_if_needed(name, instance_type,
@@ -927,6 +1002,7 @@ def make_job(
         image_name: str = '',
         create_resources=True,
         skip_setup=False,
+        is_chief=True,
         **kwargs) -> Job:
   """
   Args:
@@ -939,7 +1015,7 @@ def make_job(
     instance_type: see make_task
     image_name: see make_task
     skip_setup: skips various setup calls like mounting EFS/setup, can use it when job has already been created
-
+    is_chief: for multi-job runs, set this to true for the first job, see make_task(..., is_chief)
   Returns:
 
   """
@@ -975,6 +1051,7 @@ def make_job(
                            instance_type=instance_type, image_name=image_name,
                            logging_task=tasks[i],
                            create_resources=False,
+                           is_chief=(is_chief and i == 0),
                            # handle resources in job already
                            **kwargs)
     except Exception as e:
@@ -1075,7 +1152,7 @@ def _maybe_create_resources(logging_task: Task = None):
     return False
 
   if not should_create_resources() and not util.is_set('NCLUSTER_AWS_FORCE_CREATE_RESOURCES'):
-    util.log("Resources probably already created, skipping. Use NCLUSTER_AWS_FORCE_CREATE_RESOURCES to force")
+    util.log("AWS resources probably already created, skipping. Use NCLUSTER_AWS_FORCE_CREATE_RESOURCES to force")
     return
 
   util.log(f"Acquiring AWS resource creation lock {AWS_LOCK_FN}")

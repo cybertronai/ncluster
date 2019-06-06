@@ -169,7 +169,6 @@ def keypair_setup():
   of private key file."""
 
   os.system('mkdir -p ' + u.PRIVATE_KEY_LOCATION)
-
   keypair_name = u.get_keypair_name()
   keypair = u.get_keypair_dict().get(keypair_name, None)
   keypair_fn = u.get_keypair_fn()

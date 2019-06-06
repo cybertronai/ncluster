@@ -13,7 +13,6 @@ import ncluster
 from ncluster import aws_util as u
 from ncluster import util
 from ncluster.aws_backend import INSTANCE_INFO
-
 VERBOSE = False
 
 
@@ -397,8 +396,7 @@ def launch(args_str):
   parser.add_argument('--disk_size', type=int, default=0, help="size of disk in GBs. If 0, use default size for the image")
   args = parser.parse_args(args_str.split())
 
-  task = ncluster.make_task(**vars(args))
-  task.run('echo helloworld')
+  return ncluster.make_task(**vars(args))
 
 
 def fix_default_security_group(_):
@@ -449,6 +447,12 @@ def fix_default_security_group(_):
   peer(group2, group1)
 
 
+def keygen(_):
+  """runs ssh-keygen if necessary, prints public key."""
+  util.setup_local_ssh_keys()
+  print(f'export NCLUSTER_AUTHORIZED_KEYS="{util.get_authorized_keys()}"')
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -471,6 +475,7 @@ COMMANDS = {
   'reboot': reboot,
   'launch': launch,
   'fix_default_security_group': fix_default_security_group,
+  'keygen': keygen,
 }
 
 

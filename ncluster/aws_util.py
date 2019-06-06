@@ -12,6 +12,8 @@ from typing import Iterable, List, Dict, Optional
 
 from boto3_type_annotations.ec2 import SecurityGroup, Vpc, Subnet, InternetGateway, PlacementGroup, Image, \
   Instance, KeyPairInfo
+from boto3.resources.collection import ResourceCollection
+
 from boto3_type_annotations.ec2 import ServiceResource as EC2_ServiceResource
 from boto3_type_annotations.ec2 import Client as EC2_Client
 
@@ -214,6 +216,7 @@ def get_prefix() -> str:
 def get_account_number() -> str:
   start_time = time.time()
   success = False
+  account_number = "Unknown"
   for i in range(3):
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
       assert False, "Timeout exceeded querying account number"
@@ -226,7 +229,7 @@ def get_account_number() -> str:
         util.log(
           'AWS_SECRET_ACCESS_KEY not in env vars, configure your AWS credentials."')
       time.sleep(RETRY_INTERVAL_SEC)
-  public_key = os.environ.get('AWS_ACCESS_KEY_ID', 'unknown_access_key')
+  public_key = os.environ.get('AWS_ACCESS_KEY_ID', None)
   if not success:
     assert False, f"Could access account, make sure you have correct credentials for region {get_region()} and key {public_key}"
   return account_number
@@ -366,7 +369,7 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
 
   ec2 = get_ec2_resource()
 
-  instances = ec2.instances.filter(
+  instances: ResourceCollection = ec2.instances.filter(
     Filters=[{'Name': 'instance-state-name', 'Values': states}])
 
   prefix = get_prefix()

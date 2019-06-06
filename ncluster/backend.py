@@ -8,14 +8,14 @@ User creates them through make_run/make_job/make_task methods
 # AWS job launcher (concepts): https://docs.google.com/document/d/1IbVn8_ckfVO3Z9gIiE0b9K3UrBRRiO9HYZvXSkPXGuw/edit
 import threading
 import time
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Optional
 
 from . import util
 
 # aws_backend.py
 # local_backend.py
 
-LOGDIR_ROOT: str = None  # location of logdir for this backend
+LOGDIR_ROOT: Optional[str] = None  # location of logdir for this backend
 
 """
 backend = aws_backend # alternatively, backend=tmux_backend to launch jobs locally in separate tmux sessions
@@ -40,13 +40,13 @@ To reconnect to existing job:
 
 class Task:
   name: str
-  ip: str
-  public_ip: str
+  ip: Optional[str]
+  public_ip: Optional[str]
   run_counter: int
   # location where temporary files from interfacing with task go locally
-  local_scratch: str
+  local_scratch: Optional[str]
   # location where temporary files from interfacing with task go on task
-  remote_scratch: str
+  remote_scratch: Optional[str]
   job: Any  # can't declare Job because of circular dependency
 
   def __init__(self, name=''):

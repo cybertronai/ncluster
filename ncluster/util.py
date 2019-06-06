@@ -13,6 +13,8 @@ import shlex
 
 # starting value for now_micros (Aug 31, 2018)
 # using this to make various timestamped names shorter
+import portalocker
+
 EPOCH_MICROS = 1535753974788163
 
 
@@ -55,7 +57,7 @@ def log(*args, **kwargs):
 
 def install_pdb_handler():
   """Automatically start pdb:
-      1. CTRL+\ breaks into pdb.
+      1. CTRL+\\ breaks into pdb.
       2. pdb gets launched on exception.
   """
 
@@ -167,7 +169,7 @@ def is_bash_builtin(cmd):
   return False
 
 
-def is_set(name):
+def is_set(name) -> bool:
   """Helper method to check if given property is set"""
   val = os.environ.get(name, '0')
   assert val == '0' or val == '1', f"env var {name} has value {val}, expected 0 or 1"
@@ -191,8 +193,61 @@ def toseconds(dt) -> float:
   """Converts datetime object to seconds."""
   return time.mktime(dt.utctimetuple())
 
-def is_set(env_name) -> bool:
-  if env_name not in os.environ:
-    return False
-  val = os.environ[env_name]
-  return val != '' and val != '0' and val != 'false'
+
+def wait_for_file(fn: str, max_wait_sec: int = 60,
+                  check_interval: float = 1) -> bool:
+    """
+    Waits for file maximum of max_wait_sec. Returns True if file was detected within specified max_wait_sec
+    Args:
+      fn: filename
+      max_wait_sec: how long to wait in seconds
+      check_interval: how often to check in seconds
+    Returns:
+      False if waiting was was cut short by max_wait_sec limit, True otherwise
+    """
+    log("Waiting for file", fn)
+    start_time = time.time()
+    while True:
+      if time.time() - start_time > max_wait_sec:
+        log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
+        return False
+      if not os.path.exists(fn):
+        time.sleep(check_interval)
+        continue
+      else:
+        break
+    return True
+
+
+# locations of default keypair
+ID_RSA = os.environ['HOME'] + '/.ssh/id_rsa'
+ID_RSA_PUB = ID_RSA + '.pub'
+
+
+def setup_local_ssh_keys() -> str:
+  """Sanity checks on local ssh keypair and regenerate it if necessary. Returns location of public keypair file"""
+
+  if os.path.exists(ID_RSA_PUB):
+    assert os.path.exists(ID_RSA), f"Public key {ID_RSA_PUB} exists but private key {ID_RSA} not found, delete {ID_RSA_PUB} and run again to regenerate pair"
+    log(f"Found local keypair {ID_RSA}")
+  elif os.path.exists(ID_RSA):
+    assert os.path.exists(ID_RSA_PUB), f"Private key {ID_RSA} exists but public key {ID_RSA_PUB} not found, delete {ID_RSA} and run again to regenerate pair"
+    log(f"Found local keypair {ID_RSA}")
+  else:
+    log(f"Generating keypair {ID_RSA}")
+    with portalocker.Lock(ID_RSA+'.lock', timeout=5) as _:
+      os.system(f"ssh-keygen -t rsa -f {ID_RSA} -N ''")
+    os.system(f'rm {ID_RSA}.lock')
+
+  return ID_RSA_PUB
+
+
+def get_authorized_keys() -> str:
+  """Appends local public key to NCLUSTER_AUTHORIZED_KEYS and returns in format key1;key2;key3;
+  The result can be assigned back to NCLUSTER_AUTHORIZED_KEYS env var"""
+
+  assert os.path.exists(ID_RSA_PUB), f"{ID_RSA_PUB} not found, make sure to run setup_local_ssh_keys()"
+
+  current_key = open(ID_RSA_PUB).read().strip()
+  auth_keys = os.environ.get('NCLUSTER_AUTHORIZED_KEYS', '')
+  return auth_keys+current_key+';'
