@@ -205,6 +205,9 @@ def kill(fragment=''):
     print("Didn't get y, doing nothing")
 
 
+LIMIT_TO_CURRENT_USER = True
+
+
 def reallykill(*args, **kwargs):
   global LIMIT_TO_CURRENT_USER
   LIMIT_TO_CURRENT_USER = False
