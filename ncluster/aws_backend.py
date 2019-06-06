@@ -175,8 +175,8 @@ tmux a
     self.tmux_available_window_ids = [0]
 
     # TODO(y): fix escape sequence
-    tmux_cmd = [f'tmux set-option -g history-limit 50000 \; ',
-                f'set-option -g mouse on \; ',
+    tmux_cmd = [f'tmux set-option -g history-limit 50000 \\; ',
+                f'set-option -g mouse on \\; ',
                 f'new-session -s {self.tmux_session} -n 0 -d']
 
     # hack to get around Amazon linux not having tmux
@@ -332,6 +332,14 @@ tmux a
         self.log(f"Warning: command {cmd} returned status {status}")
 
     return status
+
+  def propagate_env(self, env_vars: List[str]):
+    """Propagates values of env_vars from client environment to the worker machine. IE
+    task.propagate_env([AWS_SECRET_KEY, WANDB_API_KEY]) will set those vars on client machine to match the launching machine
+    """
+    for var in env_vars:
+      if var in os.environ:
+        self.run(f'export {var}={os.environ[var]}')
 
   def join(self, ignore_errors=False):
     """Waits until last executed command completed."""
@@ -763,7 +771,6 @@ def make_task(
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
     preemptible: use cheaper preemptible/spot instances
     logging_task: partially initialized Task object, use it for logging
-    skip_setup: skips various setup calls like mounting EFS/setup, can use it when job has already been created
 
   Returns:
 
@@ -939,6 +946,7 @@ def make_job(
     install_script: see make_task
     instance_type: see make_task
     image_name: see make_task
+    skip_setup: skips various setup calls like mounting EFS/setup, can use it when job has already been created
 
   Returns:
 

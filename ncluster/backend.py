@@ -226,12 +226,15 @@ class Job:
     See Task for documentation of args/kwargs."""
     return self._task_parallel("run", *args, **kwargs)
 
+  def propagate_env(self, *args, **kwargs):
+    """See py:func:`aws_backend.Task.propagate_env`"""
+    return self._task_parallel("propagate_env", *args, **kwargs)
+
   def run_with_output(self, *args, **kwargs):
     """Runs command on every task in the job in parallel, blocks until all tasks finish.
     See Task for documentation of args/kwargs."""
     return self._task_parallel("run_with_output", *args, **kwargs)
 
-  
   def rsync(self, *args, **kwargs):
     """See :py:func:`backend.Task.rsync`"""
     return self._task_parallel("rsync", *args, **kwargs)
