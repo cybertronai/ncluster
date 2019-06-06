@@ -174,13 +174,12 @@ def old_ssh(fragment=''):
 
 
 def kill(fragment=''):
-  instances = u.lookup_instances(fragment, valid_states=['running', 'stopped'])
+  instances = u.lookup_instances(fragment, valid_states=['running', 'stopped'], limit_to_current_user=False)
   instances_to_kill = []
   for i in instances:
     state = i.state['Name']
 
-    # NCLUSTER_ENABLE_INDISCRIMINATE_KILLING  allows one to kill instances launched by other users
-    if util.is_set('NCLUSTER_ENABLE_INDISCRIMINATE_KILLING') or i.key_name == u.get_keypair_name():
+    if not LIMIT_TO_CURRENT_USER or i.key_name == u.get_keypair_name():
       print(u.get_name(i), i.instance_type, i.key_name, state if state == 'stopped' else '')
       instances_to_kill.append(i)
     else:
