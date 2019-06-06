@@ -747,7 +747,6 @@ def make_task(
         instance_type: str = '',
         image_name: str = '',
         disk_size: int = 0,
-        preemptible=None,
         logging_task: backend.Task = None,
         create_resources=True,
         spot=False,
@@ -761,7 +760,7 @@ def make_task(
 
 
   Args:
-    spot: try to reserve spot instance
+    spot: try to reserve spot/preemptible instance
     disk_size: default size of root disk, in GBs
     create_resources: whether this task will handle resource creation
     name: see ncluster.make_task
@@ -769,7 +768,6 @@ def make_task(
     install_script: see ncluster.make_task
     instance_type: instance type to use, defaults to $NCLUSTER_INSTANCE or t3.micro if unset
     image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
-    preemptible: use cheaper preemptible/spot instances
     logging_task: partially initialized Task object, use it for logging
 
   Returns:
@@ -812,12 +810,6 @@ def make_task(
   if not image_name:
     image_name = os.environ.get('NCLUSTER_IMAGE',
                                 GENERIC_SMALL_IMAGE)
-
-  if preemptible is None:
-    preemptible = os.environ.get('NCLUSTER_PREEMPTIBLE', False)
-    preemptible = bool(preemptible)
-    if preemptible:
-      log("Using preemptible instances")
 
   image = u.lookup_image(image_name)
   log(f"Using image '{image_name}' ({image.id})")
