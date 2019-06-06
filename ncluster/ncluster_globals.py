@@ -20,7 +20,7 @@ run_counter = 0
 
 run_dict: Dict[str, Any] = {}
 task_run_dict: Dict[backend.Task, str] = {}
-run_task_dict: Dict[str, backend.Task] = {}
+run_task_dict: Dict[str, List[backend.Task]] = {}
 run_logdir_dict: Dict[str, str] = {}
 
 tasks_seen: List[backend.Task] = []  # list of all tasks created
@@ -155,6 +155,8 @@ _should_skip_setup = False
 
 def set_should_skip_setup(val):
   global _should_skip_setup
+  if val:
+    util.log("skipping setup for all subsequent tasks/jobs")
   _should_skip_setup = val
 
 
