@@ -160,6 +160,8 @@ def network_setup() -> Tuple[Any, Any]:
                                             f"attached to {security_group.vpc_id} but expected {vpc.id}"
   else:
     security_group = create_security_group(security_group_name, vpc.id)
+    #  Uncomment the following when setting up two VPC's
+    #  security_group = create_security_group(security_group_name, vpc.id, security_group_nd)
 
   return vpc, security_group
 
@@ -297,9 +299,31 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
         else:
           assert False, "Failed while authorizing ingress with " + str(e)
 
+    # authorize EFA traffic from other group
+    try:
+      rule = {
+         "IpProtocol": "-1",
+         "Ipv6Ranges": [],
+         "PrefixListIds": [],
+         'UserIdGroupPairs': [{'Description': 'efa', 'GroupId': other_group_.id, 'UserId': u.get_account_number()}]
+      }
+      response_ = security_group_.authorize_ingress(IpPermissions=[rule])
+      assert u.is_good_response(response_), str(response)
+
+    except Exception as e:
+      if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
+        print(f"Warning while authorizing ingress from {security_group_.description} ({security_group_.id}) to "
+              f"{other_group_.description} ({other_group_.id}) with message '{e}'")
+      else:
+        assert False, (f"Failed while authorizing ingress from {security_group_.description} ({security_group_.id}) to "
+                       f"{other_group_.description} ({other_group_.id}) with message '{e}'")
+
   authorize_from_group(security_group, security_group)
+  # if using multiple security groups, which is required for the case of default + non-default VPC
+  # also authorize all traffic between them
   if other_group:
     authorize_from_group(security_group, other_group)
+    authorize_from_group(other_group, security_group)
 
   return security_group
 

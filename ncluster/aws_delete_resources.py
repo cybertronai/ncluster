@@ -57,40 +57,47 @@ def delete_efs():
 
 
 def delete_network():
-  existing_vpcs = u.get_vpc_dict()
-  if VPC_NAME in existing_vpcs:
-    vpc = ec2.Vpc(existing_vpcs[VPC_NAME].id)
+  if u.get_region() == 'us-east-1':
+    u.log("Not deleting resources in us-east-1, remove this line if you are sure")
+    return
+
+  def delete_vpc(vpc, partial=True):
     print("Deleting VPC %s (%s) subresources:" % (VPC_NAME, vpc.id))
 
-    for subnet in vpc.subnets.all():
-      try:
-        sys.stdout.write("Deleting subnet %s ... " % subnet.id)
-        sys.stdout.write(response_type(subnet.delete()) + '\n')
-      except Exception as e:
-        sys.stdout.write('failed\n')
-        util.log_error(str(e) + '\n')
+    # don't modify default VPC
+    if not partial:
+      for subnet in vpc.subnets.all():
+        try:
+          sys.stdout.write("Deleting subnet %s ... " % subnet.id)
+          sys.stdout.write(response_type(subnet.delete()) + '\n')
+        except Exception as e:
+          sys.stdout.write('failed\n')
+          util.log_error(str(e) + '\n')
 
-    for gateway in vpc.internet_gateways.all():
-      sys.stdout.write("Deleting gateway %s ... " % gateway.id)
-      # note: if instances are using VPC, this fails with
-      # botocore.exceptions.ClientError: An error occurred (DependencyViolation) when calling the DetachInternetGateway operation: Network vpc-ca4abab3 has some mapped public address(es). Please unmap those public address(es) before detaching the gateway.
+      for gateway in vpc.internet_gateways.all():
+        sys.stdout.write("Deleting gateway %s ... " % gateway.id)
+        # note: if instances are using VPC, this fails with
+        # botocore.exceptions.ClientError: An error occurred (DependencyViolation) when calling the DetachInternetGateway operation: Network vpc-ca4abab3 has some mapped public address(es). Please unmap those public address(es) before detaching the gateway.
 
-      sys.stdout.write('detached ... ' if u.is_good_response(
-        gateway.detach_from_vpc(VpcId=vpc.id)) else ' detach_failed ')
-      sys.stdout.write('deleted ' if u.is_good_response(
-        gateway.delete()) else ' delete_failed ')
-      sys.stdout.write('\n')
+        sys.stdout.write('detached ... ' if u.is_good_response(
+          gateway.detach_from_vpc(VpcId=vpc.id)) else ' detach_failed ')
+        sys.stdout.write('deleted ' if u.is_good_response(
+          gateway.delete()) else ' delete_failed ')
+        sys.stdout.write('\n')
 
-    def desc():
-      return "%s (%s)" % (route_table.id, u.get_name(route_table.tags))
+      def desc():
+        return "%s (%s)" % (route_table.id, u.get_name(route_table.tags))
 
-    for route_table in vpc.route_tables.all():
-      sys.stdout.write(f"Deleting route table {desc()} ... ")
-      try:
-        sys.stdout.write(response_type(route_table.delete()) + '\n')
-      except Exception as e:
-        sys.stdout.write('failed\n')
-        util.log_error(str(e) + '\n')
+      for route_table in vpc.route_tables.all():
+        sys.stdout.write(f"Deleting route table {desc()} ... ")
+        try:
+          sys.stdout.write(response_type(route_table.delete()) + '\n')
+        except Exception as e:
+          sys.stdout.write('failed\n')
+          util.log_error(str(e) + '\n')
+
+    else:
+      util.log(f"vpc {vpc.id} is a default VPC, only doing partial deletion")
 
     def desc():
       return "%s (%s, %s)" % (
@@ -101,6 +108,11 @@ def delete_network():
       # default group is undeletable, skip
       if security_group.group_name == 'default':
         continue
+
+      # don't delete groups created outside of ncluster framework
+      if not (security_group.group_name.startswith('ncluster') or security_group.group_name.startswith('launch-wizard')):
+        continue
+
       sys.stdout.write(
         'Deleting security group %s ... ' % (desc()))
       try:
@@ -109,12 +121,21 @@ def delete_network():
         sys.stdout.write('failed\n')
         util.log_error(str(e) + '\n')
 
-    sys.stdout.write("Deleting VPC %s ... " % vpc.id)
-    try:
-      sys.stdout.write(response_type(vpc.delete()) + '\n')
-    except Exception as e:
-      sys.stdout.write('failed\n')
-      util.log_error(str(e) + '\n')
+    if not partial:
+      sys.stdout.write("Deleting VPC %s ... " % vpc.id)
+      try:
+        sys.stdout.write(response_type(vpc.delete()) + '\n')
+      except Exception as e:
+        sys.stdout.write('failed\n')
+        util.log_error(str(e) + '\n')
+
+  existing_vpcs = u.get_vpc_dict()
+  if VPC_NAME in existing_vpcs:
+    # delete ncluster VPC
+    delete_vpc(ec2.Vpc(existing_vpcs[VPC_NAME].id), partial=False)
+
+  # delete ncluster resources on default VPC (partial=True)
+  delete_vpc(u.get_default_vpc())
 
 
 def delete_keypair():
