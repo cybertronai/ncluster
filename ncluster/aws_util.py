@@ -819,7 +819,8 @@ def maybe_create_placement_group(name='', max_retries=10):
           print(e)
           assert False, "Clean-up placement groups using 'ncluster cleanup_placement_groups'"
         print(f"Placement group creation failed with {e}, retrying")
-        # because of race can get InvalidPlacementGroup.Duplicate
+        if e.response['Error']['Code'] == 'InvalidPlacementGroup.Duplicate':
+          util.log(f"possible race condition, group {name} already created")
         pass
 
   counter = 0
@@ -936,7 +937,7 @@ def wait_on_fulfillment(ec2c, reqs):
 
 def assert_zone_specific_config():
   """Make sure user specified zone"""
-  assert get_zone(), f"EFA requires launching into specific zone, but zone not specified, could set NCLUSTER_ZONE={get_region()}a"
+  assert get_zone(), f"EFA requires launching into specific zone, but zone not specified, try NCLUSTER_ZONE={get_region()}a"
 
 
 def get_security_group_names() -> List[str]:

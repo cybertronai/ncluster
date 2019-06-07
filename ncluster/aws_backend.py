@@ -12,7 +12,6 @@ import threading
 import time
 from typing import Tuple, List, Optional
 
-
 import paramiko
 import portalocker
 from boto3_type_annotations.ec2 import Instance
@@ -872,7 +871,7 @@ def make_task(
                                                           image_name)
 
   if not instance_type:
-    instance_type = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
+    instance_type: str = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
     log("Using instance " + instance_type)
 
   _set_aws_environment()
@@ -887,14 +886,18 @@ def make_task(
     assert u.instance_supports_placement_groups(instance_type)
     assert run
 
-  if u.instance_supports_placement_groups(instance_type) and run:
+  instance = u.lookup_instance(name, instance_type, image_name)
+
+  # only create placement group for 1. new instances, 2. support for placement and 3. launched as part of a group
+  # TODO(y) when reusing previous instances, run.placement_group will not correspond to actual placement name used, can fix this by querying instance attributes
+  if instance is None and u.instance_supports_placement_groups(instance_type) and run:
     placement_group = run.placement_group
     log(f"Launching into placement_group group {placement_group}")
-    u.maybe_create_placement_group(run.placement_group)
+    if is_chief:
+      u.maybe_create_placement_group(run.placement_group)
 
   if not image_name:
-    image_name = os.environ.get('NCLUSTER_IMAGE',
-                                GENERIC_SMALL_IMAGE)
+    image_name = os.environ.get('NCLUSTER_IMAGE', GENERIC_SMALL_IMAGE)
 
   image = u.lookup_image(image_name)
   log(f"Using image '{image_name}' ({image.id})")
@@ -903,8 +906,6 @@ def make_task(
   #  security_group_nd = u.get_security_group_nd()
   ec2 = u.get_ec2_resource()
 
-  instance = u.lookup_instance(name, instance_type,
-                               image_name)
   _maybe_start_instance(instance)
   _maybe_wait_for_initializing_instance(instance)
 
