@@ -206,7 +206,7 @@ class Task(backend.Task):
 
     self.run(f'export NCLUSTER_AUTHORIZED_KEYS="{util.get_authorized_keys()}"')
 
-    self.connect_instructions = f"""To connect to {self.name}
+    self.connect_instructions = f"""To connect to {self.name} do "ncluster ssh {self.name}" or
     ssh {self.ssh_username}@{self.public_ip}
     tmux a
     """.strip()
@@ -325,7 +325,8 @@ class Task(backend.Task):
 
   def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
-          check_interval=0.2):
+          check_interval=0.2,
+          no_log=False):
 
     if sudo:
       cmd = f"sudo bash -c '{cmd}'"
@@ -353,15 +354,17 @@ class Task(backend.Task):
         f"Running {len(cmds)} commands at once, returning status of last")
       status = -1
       for subcmd in cmds:
-        status = self.run(subcmd)
+        status = self.run(subcmd, no_log=no_log)
         self.last_status = status
       return status
 
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
+
+    cmd_sanitized = cmd[:10]+'****' if no_log else cmd
     self.run_counter += 1
-    self.log("tmux> %s", cmd)
+    self.log("tmux> %s", cmd_sanitized)
 
     self._cmd = cmd
     self._cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
@@ -377,14 +380,14 @@ class Task(backend.Task):
 
     tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
     tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
-    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors, no_log=no_log)
     if non_blocking:
       return 0
 
     if not self.wait_for_file(self._status_fn, max_wait_sec=30):
       self.log(f"Retrying waiting for {self._status_fn}")
     while not self.exists(self._status_fn):
-      self.log(f"Still waiting for {cmd}")
+      self.log(f"Still waiting for {cmd_sanitized}")
       self.wait_for_file(self._status_fn, max_wait_sec=30)
     contents = self.read(self._status_fn)
 
@@ -397,9 +400,9 @@ class Task(backend.Task):
 
     if status != 0:
       if not ignore_errors:
-        raise RuntimeError(f"Command {cmd} returned status {status}")
+        raise RuntimeError(f"Command {cmd_sanitized} returned status {status}")
       else:
-        self.log(f"Warning: command {cmd} returned status {status}")
+        self.log(f"Warning: command {cmd_sanitized} returned status {status}")
 
     return status
 
@@ -409,7 +412,8 @@ class Task(backend.Task):
     """
     for var in env_vars:
       if var in os.environ:
-        self.run(f'export {var}={os.environ[var]}')
+        # don't mirror env vars to stdout since they can contain secrets
+        self.run(f'export {var}={os.environ[var]}', no_log=True)
 
   def join(self, ignore_errors=False):
     """Waits until last executed command completed."""
@@ -446,7 +450,8 @@ class Task(backend.Task):
   def _run_with_output_on_failure(self, cmd, non_blocking=False,
                                   ignore_errors=False,
                                   max_wait_sec=365 * 24 * 3600,
-                                  check_interval=0.2) -> str:
+                                  check_interval=0.2,
+                                  no_log=False) -> str:
     """Experimental version of run propagates error messages to client. This command will be default "run" eventually"""
 
     if not self._can_run:
@@ -458,8 +463,11 @@ class Task(backend.Task):
     cmd = cmd.strip()
     if cmd.startswith('#'):  # ignore empty/commented out lines
       return ''
+
+    cmd_sanitized = cmd[:10]+'****' if no_log else cmd
+
     self.run_counter += 1
-    self.log("tmux> %s", cmd)
+    self.log("tmux> %s", cmd_sanitized)
 
     self._cmd = cmd
     self._cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
@@ -492,7 +500,7 @@ class Task(backend.Task):
       self.log(f"Retrying waiting for {self._status_fn}")
     elapsed_time = time.time() - start_time
     while not self.exists(self._status_fn) and elapsed_time < max_wait_sec:
-      self.log(f"Still waiting for {cmd}")
+      self.log(f"Still waiting for {cmd_sanitized}")
       self.wait_for_file(self._status_fn, max_wait_sec=60)
       elapsed_time = time.time() - start_time
     contents = self.read(self._status_fn)
@@ -516,7 +524,7 @@ class Task(backend.Task):
 
     return self.read(self._out_fn)
 
-  def _run_raw(self, cmd: str, ignore_errors=False) -> Tuple[str, str]:
+  def _run_raw(self, cmd: str, ignore_errors=False, no_log=False) -> Tuple[str, str]:
     """Runs given cmd in the task using current SSH session, returns
     stdout/stderr as strings. Because it blocks until cmd is done, use it for
     short cmds. Silently ignores failing commands.
@@ -530,9 +538,11 @@ class Task(backend.Task):
                                                 command=cmd, get_pty=True)
     stdout_str = stdout.read().decode()
     stderr_str = stderr.read().decode()
+    cmd_sanitized = cmd[:10]+'****' if no_log else cmd
+
     if stdout.channel.recv_exit_status() != 0:
       if not ignore_errors:
-        self.log(f"command ({cmd}) failed with --->")
+        self.log(f"command ({cmd_sanitized}) failed with --->")
         self.log("failing stdout: " + stdout_str)
         self.log("failing stderr: " + stderr_str)
         assert False, "_run_raw failed (see logs for error)"
