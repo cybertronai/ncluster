@@ -2,7 +2,7 @@
 #
 # Creates resources.
 # To run standalone:
-# python -m ncluster.aws_create_resources
+# python -m ncluster.ncluster_cloud_setup
 #
 # This script creates VPC/security group/keypair if not already present
 

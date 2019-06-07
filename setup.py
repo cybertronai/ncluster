@@ -5,8 +5,8 @@ for line in open('requirements.txt'):
     req = line.split('#', 1)[0]  # strip comments
     requirements.append(req.strip())
     
-setup(scripts=['ncluster/aws_create_resources.py',  # also used as module
-               'ncluster/aws_delete_resources.py',
+setup(scripts=['ncluster/ncluster_cloud_setup.py',  # also used as module
+               'ncluster/ncluster_cloud_wipe.py',
                'tools/nsync',
                'tools/ncluster'],
       install_requires=requirements,

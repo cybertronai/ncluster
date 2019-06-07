@@ -18,7 +18,7 @@ from boto3_type_annotations.ec2 import Instance
 
 from ncluster import ncluster_globals
 
-from . import aws_create_resources as create_lib
+from . import ncluster_cloud_setup as create_lib
 from . import aws_util as u
 from . import backend
 from . import util
@@ -1152,6 +1152,7 @@ def _maybe_create_resources(logging_task: Task = None):
       log(f"Missing {u.get_keypair_name()} keypair, creating resources")
       return True
     vpcs = u.get_vpc_dict()
+    # TODO(y): this heuristic is now too generous, since we use default VPC for everything instead of ncluster-specific
     if prefix not in vpcs:
       log(f"Missing {prefix} vpc, creating resources")
       return True

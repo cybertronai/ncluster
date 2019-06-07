@@ -12,7 +12,7 @@ from ncluster import util
 parser = argparse.ArgumentParser()
 parser.add_argument('--kind', type=str, default='all',
                     help="which resources to delete, all/network/keypair/efs")
-parser.add_argument('--force-delete-efs', action='store_true',
+parser.add_argument('--force_delete_efs', action='store_true',
                     help="force deleting main EFS")
 args = parser.parse_args()
 
@@ -169,8 +169,8 @@ def delete_resources(force_delete_efs=False):
   if 'efs' in args.kind or 'all' in args.kind:
     if EFS_NAME == u.DEFAULT_PREFIX and not force_delete_efs:
       # this is default EFS, likely has stuff, require extra flag to delete it
-      print("default EFS has useful stuff in it, not deleting it. Use force-delete-efs "
-            "flag to force")
+      print("default EFS has useful stuff in it, not deleting it. Use force_delete_efs "
+            "flag to force. This means security group deletion will fail as well.")
     else:
       delete_efs()
   if 'network' in args.kind or 'all' in args.kind:
