@@ -16,6 +16,7 @@ from boto3.resources.collection import ResourceCollection
 
 from boto3_type_annotations.ec2 import ServiceResource as EC2_ServiceResource
 from boto3_type_annotations.ec2 import Client as EC2_Client
+from boto3_type_annotations.sts import Client as STS_Client
 
 import boto3
 
@@ -221,7 +222,8 @@ def get_account_number() -> str:
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
       assert False, "Timeout exceeded querying account number"
     try:
-      account_number = str(boto3.client('sts').get_caller_identity()['Account'])
+      sts_client:STS_Client = boto3.client('sts')
+      account_number = str(sts_client.get_caller_identity()['Account'])
       success = True
     except Exception as e:
       util.log(f'Exception in get_account_number {e}, retrying')
@@ -935,3 +937,8 @@ def wait_on_fulfillment(ec2c, reqs):
 def assert_zone_specific_config():
   """Make sure user specified zone"""
   assert get_zone(), f"EFA requires launching into specific zone, but zone not specified, could set NCLUSTER_ZONE={get_region()}a"
+
+
+def get_security_group_names() -> List[str]:
+  """Returns all security group names associated with given ncluster configuration."""
+  return [get_security_group_name(), get_security_group_nd_name()]

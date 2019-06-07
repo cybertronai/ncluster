@@ -58,10 +58,12 @@ def delete_efs():
 
 def delete_network():
   if u.get_region() == 'us-east-1':
-    u.log("Not deleting resources in us-east-1, remove this line if you are sure")
+    u.log("(Internal safety switch. Not deleting resources in us-east-1, remove this line if you are really sure")
     return
 
   def delete_vpc(vpc, partial=True):
+    """Deletes VPC + all resources, if "partial" set to True, only deletes associated security groups
+    """
     print("Deleting VPC %s (%s) subresources:" % (VPC_NAME, vpc.id))
 
     # don't modify default VPC
@@ -104,13 +106,14 @@ def delete_network():
         security_group.id, u.get_name(security_group.tags),
         security_group.group_name)
 
+    ncluster_security_groups = u.get_security_group_names()
     for security_group in vpc.security_groups.all():
       # default group is undeletable, skip
       if security_group.group_name == 'default':
         continue
 
       # don't delete groups created outside of ncluster framework
-      if not (security_group.group_name.startswith('ncluster') or security_group.group_name.startswith('launch-wizard')):
+      if security_group.group_name not in ncluster_security_groups:
         continue
 
       sys.stdout.write(
