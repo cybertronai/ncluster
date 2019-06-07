@@ -274,7 +274,8 @@ class Task(backend.Task):
 
     stdout, stderr = self.run_with_output('df')
     if '/ncluster' not in stdout:
-      self.run(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster")
+      self.run(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster",
+               ignore_errors=True)
 
     # sometimes mount command doesn't work, make sure it's really mounted before returning
     stdout, stderr = self.run_with_output('df')
