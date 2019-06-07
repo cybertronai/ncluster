@@ -58,7 +58,7 @@ def delete_efs():
 
 def delete_network():
   if u.get_region() == 'us-east-1':
-    u.log("(Internal safety switch. Not deleting resources in us-east-1, remove this line if you are really sure")
+    util.log("(Internal safety switch. Not deleting resources in us-east-1, remove this line if you are really sure")
     return
 
   def delete_vpc(vpc, partial=True):
@@ -163,6 +163,12 @@ def delete_resources(force_delete_efs=False):
   region = os.environ['AWS_DEFAULT_REGION']
 
   resource = u.get_prefix()
+  answer = input(f"Deleting resources for account {u.get_account_number()}, region {u.get_region()}, sure? (y/N) ")
+
+  if not answer.lower() == "y":
+    print("Didn't get y, doing nothing")
+    return
+
   print(f"Deleting {resource} resources in region {region}")
   print(f"Make sure {resource} instances are terminated or this will fail.")
 
