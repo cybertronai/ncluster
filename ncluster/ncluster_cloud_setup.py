@@ -263,11 +263,12 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
                                                 ToPort=to_port)
     assert u.is_good_response(response)
 
-  # allow ingress within security group
-  # Authorizing ingress doesn't work with names in a non-default VPC,
-  # so must use more complicated syntax
-  # https://github.com/boto/boto3/issues/158
-  def authorize_from_group(security_group_: SecurityGroup, other_group_: SecurityGroup):
+  def authorize_from_group(this_security_group: SecurityGroup, other_security_group: SecurityGroup):
+    """Helper function to authorize all traffic from other_group. Can be used to authorized within-group traffic as
+    authorize_from_group(group, group)"""
+
+    # Authorizing ingress doesn't work with security group names in a non-default VPC,
+    # so must use more complicated syntax: https://github.com/boto/boto3/issues/158
     response_ = {}
     for protocol in ['icmp']:
       try:
@@ -276,8 +277,8 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
                 'IpRanges': [],
                 'PrefixListIds': [],
                 'ToPort': -1,
-                'UserIdGroupPairs': [{'GroupId': other_group_.id}]}
-        response_ = security_group_.authorize_ingress(IpPermissions=[rule])
+                'UserIdGroupPairs': [{'GroupId': other_security_group.id}]}
+        response_ = this_security_group.authorize_ingress(IpPermissions=[rule])
       except Exception as e:
         if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
           print("Warning, got " + str(e))
@@ -291,32 +292,32 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
                 'IpRanges': [],
                 'PrefixListIds': [],
                 'ToPort': 65535,
-                'UserIdGroupPairs': [{'GroupId': other_group_.id}]}
-        response_ = security_group_.authorize_ingress(IpPermissions=[rule])
+                'UserIdGroupPairs': [{'GroupId': other_security_group.id}]}
+        response_ = this_security_group.authorize_ingress(IpPermissions=[rule])
       except Exception as e:
         if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
           print("Warning, got " + str(e))
         else:
           assert False, "Failed while authorizing ingress with " + str(e)
 
-    # authorize EFA traffic from other group
+    # authorize EFA traffic
     try:
       rule = {
          "IpProtocol": "-1",
          "Ipv6Ranges": [],
          "PrefixListIds": [],
-         'UserIdGroupPairs': [{'Description': 'efa', 'GroupId': other_group_.id, 'UserId': u.get_account_number()}]
+         'UserIdGroupPairs': [{'Description': 'efa', 'GroupId': other_security_group.id, 'UserId': u.get_account_number()}]
       }
-      response_ = security_group_.authorize_ingress(IpPermissions=[rule])
+      response_ = this_security_group.authorize_ingress(IpPermissions=[rule])
       assert u.is_good_response(response_), str(response)
 
     except Exception as e:
       if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
-        print(f"Warning while authorizing ingress from {security_group_.description} ({security_group_.id}) to "
-              f"{other_group_.description} ({other_group_.id}) with message '{e}'")
+        print(f"Warning while authorizing ingress from {this_security_group.description} ({this_security_group.id}) to "
+              f"{other_security_group.description} ({other_security_group.id}) with message '{e}'")
       else:
-        assert False, (f"Failed while authorizing ingress from {security_group_.description} ({security_group_.id}) to "
-                       f"{other_group_.description} ({other_group_.id}) with message '{e}'")
+        assert False, (f"Failed while authorizing ingress from {this_security_group.description} ({this_security_group.id}) to "
+                       f"{other_security_group.description} ({other_security_group.id}) with message '{e}'")
 
   authorize_from_group(security_group, security_group)
   # if using multiple security groups, which is required for the case of default + non-default VPC
