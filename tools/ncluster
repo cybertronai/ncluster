@@ -34,7 +34,7 @@ with newlines stripped"""
 
 def _check_instance_found(instances, fragment):
   if not instances:
-    print(f"Couldn't find instances matching {fragment} for key {u.get_keypair_name()}")
+    print(f"Couldn't find instances matching '{fragment}' for key {u.get_keypair_name()}")
     return False
   return True
 
