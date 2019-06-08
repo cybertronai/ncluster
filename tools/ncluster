@@ -488,7 +488,7 @@ COMMANDS = {
 
 
 def main():
-  print(f"Region ({u.get_region()}) $USER ({u.get_username()}) account ({u.get_account_number()})")
+  print(f"Region ({u.get_region()}) $USER ({u.get_username()}) account ({u.get_account_number()}:{u.get_account_name()})")
   if len(sys.argv) < 2:
     mode = 'ls'
   else:

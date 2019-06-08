@@ -237,6 +237,15 @@ def get_account_number() -> str:
   return account_number
 
 
+def get_account_name() -> str:
+  iam_client = boto3.client('iam')
+  response = iam_client.list_account_aliases()
+  aliases = response.get('AccountAliases', [])
+  if aliases:
+    return aliases[0]
+  else:
+    return ''
+
 def get_region() -> str:
   return get_session().region_name
 
@@ -937,6 +946,7 @@ def wait_on_fulfillment(ec2c, reqs):
 
 def assert_zone_specific_config():
   """Make sure user specified zone"""
+
   assert get_zone(), f"EFA requires launching into specific zone, but zone not specified, try NCLUSTER_ZONE={get_region()}a"
 
 

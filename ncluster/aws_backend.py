@@ -1211,5 +1211,5 @@ def _set_aws_environment(task: Task = None):
   #    current_zone = current_region + 'a'
   #    os.environ['NCLUSTER_ZONE'] = current_zone
 
-  log(f"Using account {u.get_account_number()}, region {current_region}, "
+  log(f"Using account {u.get_account_number()}:{u.get_account_name()}, region {current_region}, "
       f"zone {current_zone}")
