@@ -21,7 +21,6 @@ from .ncluster import get_region
 from .ncluster import set_logdir_root
 from .ncluster import get_logdir_root
 
-
 # set default backend from environment
 if 'NCLUSTER_BACKEND' in os.environ:
   set_backend(os.environ['NCLUSTER_BACKEND'])

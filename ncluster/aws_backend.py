@@ -326,24 +326,20 @@ class Task(backend.Task):
   def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2,
-          no_log=False):
+          sanitized=False):
 
     if sudo:
       cmd = f"sudo bash -c '{cmd}'"
 
-    # TODO(y): make _run_with_output_on_failure default, and delete this
-    if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE') or True:
-      # experimental version that captures output and prints it on failure
-      # redirection things break bash commands, so
-      # don't redirect on bash commands like source
-      # TODO(y): remove this, put in this filtering becase I thought it broke
-      # source activate, but now it seems it doesn't
-      if not util.is_bash_builtin(cmd) or True:
-        return self._run_with_output_on_failure(cmd, non_blocking,
-                                                ignore_errors,
-                                                max_wait_sec)
-      else:
-        self.log("Found bash built-in, using regular run")
+    # TODO(y): remove this, put in this filtering becase I thought it broke
+    # source activate, but now it seems it doesn't
+    if not util.is_bash_builtin(cmd) or True:
+      return self._run_with_output_on_failure(cmd, non_blocking,
+                                              ignore_errors,
+                                              max_wait_sec,
+                                              sanitized=sanitized)
+    else:
+      self.log("Found bash built-in, using regular run")
 
     if not self._can_run:
       assert False, "Using .run before initialization finished"
@@ -354,7 +350,7 @@ class Task(backend.Task):
         f"Running {len(cmds)} commands at once, returning status of last")
       status = -1
       for subcmd in cmds:
-        status = self.run(subcmd, no_log=no_log)
+        status = self.run(subcmd, sanitized=sanitized)
         self.last_status = status
       return status
 
@@ -362,7 +358,7 @@ class Task(backend.Task):
     if cmd.startswith('#'):  # ignore empty/commented out lines
       return -1
 
-    cmd_sanitized = cmd[:10]+'****' if no_log else cmd
+    cmd_sanitized = cmd[:20]+'****' if sanitized else cmd
     self.run_counter += 1
     self.log("tmux> %s", cmd_sanitized)
 
@@ -380,7 +376,7 @@ class Task(backend.Task):
 
     tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
     tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
-    self._run_raw(tmux_cmd, ignore_errors=ignore_errors, no_log=no_log)
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors, sanitized=sanitized)
     if non_blocking:
       return 0
 
@@ -413,7 +409,7 @@ class Task(backend.Task):
     for var in env_vars:
       if var in os.environ:
         # don't mirror env vars to stdout since they can contain secrets
-        self.run(f'export {var}={os.environ[var]}', no_log=True)
+        self.run(f'export {var}={os.environ[var]}', sanitized=True)
 
   def join(self, ignore_errors=False):
     """Waits until last executed command completed."""
@@ -451,7 +447,7 @@ class Task(backend.Task):
                                   ignore_errors=False,
                                   max_wait_sec=365 * 24 * 3600,
                                   check_interval=0.2,
-                                  no_log=False) -> str:
+                                  sanitized=False) -> str:
     """Experimental version of run propagates error messages to client. This command will be default "run" eventually"""
 
     if not self._can_run:
@@ -464,7 +460,7 @@ class Task(backend.Task):
     if cmd.startswith('#'):  # ignore empty/commented out lines
       return ''
 
-    cmd_sanitized = cmd[:10]+'****' if no_log else cmd
+    cmd_sanitized = cmd[:20]+'****' if sanitized else cmd
 
     self.run_counter += 1
     self.log("tmux> %s", cmd_sanitized)
@@ -524,7 +520,7 @@ class Task(backend.Task):
 
     return self.read(self._out_fn)
 
-  def _run_raw(self, cmd: str, ignore_errors=False, no_log=False) -> Tuple[str, str]:
+  def _run_raw(self, cmd: str, ignore_errors=False, sanitized=False) -> Tuple[str, str]:
     """Runs given cmd in the task using current SSH session, returns
     stdout/stderr as strings. Because it blocks until cmd is done, use it for
     short cmds. Silently ignores failing commands.
@@ -538,7 +534,7 @@ class Task(backend.Task):
                                                 command=cmd, get_pty=True)
     stdout_str = stdout.read().decode()
     stderr_str = stderr.read().decode()
-    cmd_sanitized = cmd[:10]+'****' if no_log else cmd
+    cmd_sanitized = cmd[:20]+'****' if sanitized else cmd
 
     if stdout.channel.recv_exit_status() != 0:
       if not ignore_errors:

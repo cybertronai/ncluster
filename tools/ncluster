@@ -173,7 +173,14 @@ def old_ssh(fragment=''):
   os.system(user_cmd)
 
 
-def kill(fragment=''):
+def kill(fragment: str = '', stop_instead_of_kill: bool = False):
+  """
+
+  Args:
+    fragment:
+    stop_instead_of_kill: use stop_instances instead of terminate_instances
+  """
+
   instances = u.lookup_instances(fragment, valid_states=['running', 'stopped'], limit_to_current_user=False)
   instances_to_kill = []
   for i in instances:
@@ -183,61 +190,59 @@ def kill(fragment=''):
       print(u.get_name(i), i.instance_type, i.key_name, state if state == 'stopped' else '')
       instances_to_kill.append(i)
     else:
-      print(f"Skipping instance '{u.get_name(i)}' launched with key {i.key_name}, use reallykill to kill")
+      print(f"Skipping instance '{u.get_name(i)}' launched with key {i.key_name}, use reallykill/reallystop to override")
 
-  action = 'terminating'
+  if stop_instead_of_kill:
+    action = 'stopping'
+  else:
+    action = 'terminating'
   if not _check_instance_found(instances_to_kill, fragment):
     return
 
   ec2_client = u.get_ec2_client()
-  if util.is_set("NCLUSTER_SKIP_CONFIRMATION"):
-    print("Yes specified, skipping confirmation")
+  # don't ask for confirmation when stopping, erronous stopping has milder consequences
+  num_instances = len(instances_to_kill)
+  if util.is_set("NCLUSTER_SKIP_CONFIRMATION") or stop_instead_of_kill:
+    print("NCLUSTER_SKIP_CONFIRMATION is set or stop_instead_of_kill, skipping confirmation")
     answer = 'y'
   else:
-    answer = input(f"{len(instances_to_kill)} instances found, {action} in {u.get_region()}? (y/N) ")
+    answer = input(f"{num_instances} instances found, {action} in {u.get_region()}? (y/N) ")
+
   if answer.lower() == "y":
     instance_ids = [i.id for i in instances_to_kill]
-    response = ec2_client.terminate_instances(InstanceIds=instance_ids)
+
+    if stop_instead_of_kill:
+      response = ec2_client.stop_instances(InstanceIds=instance_ids)
+    else:
+      response = ec2_client.terminate_instances(InstanceIds=instance_ids)
 
     assert u.is_good_response(response), response
-    print(f"{action}: success")
+    print(f"{action} {num_instances} instances: success")
   else:
     print("Didn't get y, doing nothing")
+
+
+def stop(fragment=''):
+  kill(fragment, stop_instead_of_kill=True)
 
 
 LIMIT_TO_CURRENT_USER = True
 
 
 def reallykill(*args, **kwargs):
+  """Kill instances, including ones launched by other users."""
   global LIMIT_TO_CURRENT_USER
   LIMIT_TO_CURRENT_USER = False
   kill(*args, **kwargs)
   LIMIT_TO_CURRENT_USER = True
 
 
-def stop(fragment=''):
-  instances = u.lookup_instances(fragment, valid_states=['running'])
-  for i in instances:
-    state = i.state['Name']
-    print(u.get_name(i), i.instance_type, i.key_name,
-          state if state == 'stopped' else '')
-
-  action = 'stopping'
-  if not _check_instance_found(instances, fragment):
-    return
-
-  #  answer = input(f"{len(instances)} instances found, {action} in {u.get_region()}? (y/N) ")
-  answer = 'y'
-
-  ec2_client = u.get_ec2_client()
-  if answer.lower() == "y":
-    instance_ids = [i.id for i in instances]
-    response = ec2_client.stop_instances(InstanceIds=instance_ids)
-
-    assert u.is_good_response(response), response
-    print(f"{action}: success")
-  else:
-    print("Didn't get y, doing nothing")
+def reallystop(*args, **kwargs):
+  """Stop instances, including ones launched by other users."""
+  global LIMIT_TO_CURRENT_USER
+  LIMIT_TO_CURRENT_USER = False
+  stop(*args, **kwargs)
+  LIMIT_TO_CURRENT_USER = True
 
 
 def start(fragment=''):
@@ -463,6 +468,7 @@ COMMANDS = {
   'kill': kill,
   'reallykill': reallykill,
   'stop': stop,
+  'reallystop': reallystop,
   'start': start,
   'efs': efs,
   'cat': cat,

@@ -283,7 +283,7 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
         if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
           print("Warning, got " + str(e))
         else:
-          assert False, "Failed while authorizing ingress with " + str(e)
+          assert False, "Failed while authorizing icml ingress with " + str(e)
 
     for protocol in ['tcp', 'udp']:
       try:
@@ -298,26 +298,39 @@ def create_security_group(security_group_name: str, vpc_id: str, other_group: Op
         if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
           print("Warning, got " + str(e))
         else:
-          assert False, "Failed while authorizing ingress with " + str(e)
+          assert False, "Failed while authorizing tcp/udp ingress with " + str(e)
 
     # authorize EFA traffic
+    user_id = u.get_account_number()
+    response = None
     try:
       rule = {
          "IpProtocol": "-1",
          "Ipv6Ranges": [],
          "PrefixListIds": [],
-         'UserIdGroupPairs': [{'Description': 'efa', 'GroupId': other_security_group.id, 'UserId': u.get_account_number()}]
+         'UserIdGroupPairs': [{'Description': 'efa', 'GroupId': other_security_group.id, 'UserId': user_id}]
       }
       response_ = this_security_group.authorize_ingress(IpPermissions=[rule])
       assert u.is_good_response(response_), str(response)
 
+      rule = {
+        "IpProtocol": "-1",
+        "PrefixListIds": [],
+        'UserIdGroupPairs': [{'Description': 'efa',
+                              'GroupId': other_security_group.id,
+                              'UserId': user_id}]
+      }
+      response_ = this_security_group.authorize_egress(IpPermissions=[rule])
+      assert u.is_good_response(response_), str(response)
+
     except Exception as e:
-      if response_['Error']['Code'] == 'InvalidPermission.Duplicate':
+      if 'Error' in response_ and 'Code' in response['Error'] and response_['Error']['Code'] == 'InvalidPermission.Duplicate':
         print(f"Warning while authorizing ingress from {this_security_group.description} ({this_security_group.id}) to "
               f"{other_security_group.description} ({other_security_group.id}) with message '{e}'")
+
       else:
         assert False, (f"Failed while authorizing ingress from {this_security_group.description} ({this_security_group.id}) to "
-                       f"{other_security_group.description} ({other_security_group.id}) with message '{e}'")
+                       f"{other_security_group.description} ({other_security_group.id}) with message '{e}' and response '{response}'")
 
   authorize_from_group(security_group, security_group)
   # if using multiple security groups, which is required for the case of default + non-default VPC

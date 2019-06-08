@@ -165,6 +165,10 @@ def delete_resources(force_delete_efs=False):
   resource = u.get_prefix()
   answer = input(f"Deleting resources for account {u.get_account_number()}, region {u.get_region()}, sure? (y/N) ")
 
+  if util.is_set("NCLUSTER_SKIP_CONFIRMATION"):
+    print("NCLUSTER_SKIP_CONFIRMATION is set, skipping confirmation")
+    answer = 'y'
+
   if not answer.lower() == "y":
     print("Didn't get y, doing nothing")
     return
