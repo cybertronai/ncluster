@@ -218,9 +218,10 @@ def get_account_number() -> str:
   start_time = time.time()
   success = False
   account_number = "Unknown"
-  for i in range(3):
+  retry_times = 3
+  for i in range(retry_times):
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
-      assert False, "Timeout exceeded querying account number"
+      assert False, f"Timeout {RETRY_TIMEOUT_SEC} exceeded querying account number {retry_times} times"
     try:
       sts_client:STS_Client = boto3.client('sts')
       account_number = str(sts_client.get_caller_identity()['Account'])
@@ -365,7 +366,7 @@ def lookup_image(wildcard) -> Image:
 
 def get_aws_username(instance) -> str:
   image_name = instance.image.name.lower()
-  if 'amzn' in image_name or 'amazon' in image_name or image_name == 'dlami23-efa':
+  if 'amzn' in image_name or 'amazon' in image_name or image_name.startswith('dlami23-efa'):
     print("Auto-detected Amazon Linux, using ec2-user ssh name")
     return 'ec2-user'
   else:
@@ -720,7 +721,7 @@ def call_with_retries(method, debug_string='',
       assert value is not None, f"{debug_string} was None"
       break
     except Exception as e:
-      print(f"{debug_string} failed with {e.__class__}({e}), retrying for another {retry_timeout_sec - (time.time() - start_time)} seconds")
+      print(f"{debug_string} failed with {e.__class__}({e}), retrying for another {int(retry_timeout_sec - (time.time() - start_time))} seconds")
       time.sleep(retry_interval_sec)
       continue
 
