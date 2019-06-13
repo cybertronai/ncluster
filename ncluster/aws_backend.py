@@ -65,6 +65,7 @@ class Task(backend.Task):
 
   sftp: Optional[paramiko.SFTPClient]
 
+  # TODO(y): init should be lightweight to enable wrapping existing instances into tasks, refactor all setup to take place outside of init
   def __init__(self, name, *, instance: Instance, install_script='', image_name='',
                **extra_kwargs):
     """
