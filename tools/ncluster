@@ -2,6 +2,7 @@
 # tool to automate various AWS commands
 import datetime as dt
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -254,7 +255,8 @@ def start(fragment=''):
     print("no stopped instances found, quitting")
     return
 
-  answer = input(f"{len(instances)} instances found, start in {u.get_region()}? (y/N) ")
+  #  answer = input(f"{len(instances)} instances found, start in {u.get_region()}? (y/N) ")
+  answer = 'y'
 
   if answer.lower() == "y":
     for i in instances:
@@ -399,9 +401,10 @@ def launch(args_str):
   parser = argparse.ArgumentParser()
   parser.add_argument('--name', type=str, default='ncluster_launch', help="instance name")
   parser.add_argument('--image_name', type=str, default='cybertronai01')
+  # can also use --image_name='Deep Learning AMI (Amazon Linux) Version 23.0'
   parser.add_argument('--instance_type', type=str, default='p3.2xlarge', help="type of instance")
   parser.add_argument('--disk_size', type=int, default=0, help="size of disk in GBs. If 0, use default size for the image")
-  args = parser.parse_args(args_str.split())
+  args = parser.parse_args(shlex.split(args_str))
 
   return ncluster.make_task(**vars(args))
 
