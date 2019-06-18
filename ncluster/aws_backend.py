@@ -726,6 +726,11 @@ class Task(backend.Task):
     """
     run_name = ncluster_globals.get_run_for_task(self)
     self.log("Creating logdir for run " + run_name)
+
+    stdout, stderr = self.run_with_output('df')
+    if '/ncluster' not in stdout:
+      assert False, "EFS is not mounted, run 'ncluster efs' for instructions or see https://github.com/cybertronai/ncluster/issues/43"
+
     logdir_root = ncluster_globals.LOGDIR_ROOT
     assert logdir_root, "LOGDIR_ROOT not set, make sure you have called ncluster.set_backend()"
 

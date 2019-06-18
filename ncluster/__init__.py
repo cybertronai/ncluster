@@ -20,6 +20,7 @@ from .ncluster import get_zone
 from .ncluster import get_region
 from .ncluster import set_logdir_root
 from .ncluster import get_logdir_root
+from .ncluster import add_authorized_keys
 
 # set default backend from environment
 if 'NCLUSTER_BACKEND' in os.environ:
