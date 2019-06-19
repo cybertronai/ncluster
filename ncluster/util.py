@@ -250,4 +250,4 @@ def get_authorized_keys() -> str:
 
   current_key = open(ID_RSA_PUB).read().strip()
   auth_keys = os.environ.get('NCLUSTER_AUTHORIZED_KEYS', '')
-  return auth_keys+current_key+';'
+  return auth_keys+';'+current_key+';'
