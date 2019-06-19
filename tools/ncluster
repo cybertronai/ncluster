@@ -174,6 +174,28 @@ def old_ssh(fragment=''):
   os.system(user_cmd)
 
 
+def connect(fragment=''):
+  """SSH into the instance using authorized keys mechanism."""
+  instances = u.lookup_instances(fragment)
+  if not _check_instance_found(instances, fragment):
+    return
+  instance = instances[0]
+  if len(instances) > 1:
+    print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+  else:
+    print(f"Connecting to  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+
+  _user_keypair_check(instance)
+  user_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
+             f"-o ServerAliveCountMax=1 " \
+             f"-o ServerAliveInterval=60 " \
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address}"
+  print(user_cmd)
+  os.system(user_cmd)
+
+
 def kill(fragment: str = '', stop_instead_of_kill: bool = False):
   """
 
@@ -487,6 +509,7 @@ COMMANDS = {
   'launch': launch,
   'fix_default_security_group': fix_default_security_group,
   'keygen': keygen,
+  'connect': connect,
 }
 
 
