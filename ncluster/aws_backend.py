@@ -144,6 +144,7 @@ class Task(backend.Task):
     # Part 1: user initialization
     if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
       self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
+      assert self._is_efs_mounted(),  "EFS is not mounted, run 'ncluster efs' for instructions or see https://github.com/cybertronai/ncluster/issues/43"
     else:
       self.log("running install script")
 
@@ -204,7 +205,7 @@ class Task(backend.Task):
         auth_keys_file_str += key + '\n'
       self.run(f"""echo "{auth_keys_file_str}" >> ~/.ssh/authorized_keys""")
 
-    self.run(f'export NCLUSTER_AUTHORIZED_KEYS="{util.get_authorized_keys()}"')
+    self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS'])
 
     self.connect_instructions = f"""To connect to {self.name} do "ncluster ssh {self.name}" or
     ssh {self.ssh_username}@{self.public_ip}
@@ -410,7 +411,7 @@ class Task(backend.Task):
     for var in env_vars:
       if var in os.environ:
         # don't mirror env vars to stdout since they can contain secrets
-        self.run(f'export {var}={os.environ[var]}', sanitized=True)
+        self.run(f'export {var}={shlex.quote(os.environ[var])}', sanitized=True)
 
   def join(self, ignore_errors=False):
     """Waits until last executed command completed."""
@@ -726,10 +727,6 @@ class Task(backend.Task):
     """
     run_name = ncluster_globals.get_run_for_task(self)
     self.log("Creating logdir for run " + run_name)
-
-    stdout, stderr = self.run_with_output('df')
-    if '/ncluster' not in stdout:
-      assert False, "EFS is not mounted, run 'ncluster efs' for instructions or see https://github.com/cybertronai/ncluster/issues/43"
 
     logdir_root = ncluster_globals.LOGDIR_ROOT
     assert logdir_root, "LOGDIR_ROOT not set, make sure you have called ncluster.set_backend()"
