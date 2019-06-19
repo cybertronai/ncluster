@@ -31,6 +31,8 @@ else:
 # print custom settings
 for v in os.environ:
   if v.startswith('NCLUSTER'):
+    if v == 'NCLUSTER_AUTHORIZED_KEYS':
+      continue  # don't spam console since this could be set by default
     print(f"ncluster env setting {v}={os.environ[v]}")
 
 if not util.is_set('NCLUSTER_DISABLE_PDB_HANDLER'):
