@@ -206,7 +206,9 @@ class Task(backend.Task):
         auth_keys_file_str += key + '\n'
       self.run(f"""echo "{auth_keys_file_str}" >> ~/.ssh/authorized_keys""")
 
-    self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS'])
+    self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS',  # public keys that will work for passwordless SSH to machine
+                        'WANDB_API_KEY'    # optional logging, if defined locally also propagate to remote machine
+                        ])
 
     self.connect_instructions = f"""To connect to {self.name} do "ncluster ssh {self.name}" or
     ssh {self.ssh_username}@{self.public_ip}
@@ -249,6 +251,7 @@ class Task(backend.Task):
 
     # hack to get around Amazon linux not having tmux
     if self._linux_type == 'amazon':
+      self.log("Amazon linux detected, installing tmux")
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
