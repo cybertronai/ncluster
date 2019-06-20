@@ -144,7 +144,8 @@ class Task(backend.Task):
     # Part 1: user initialization
     if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
       self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
-      assert self._is_efs_mounted(),  "EFS is not mounted, run 'ncluster efs' for instructions or see https://github.com/cybertronai/ncluster/issues/43"
+      # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
+      assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
     else:
       self.log("running install script")
 
@@ -1074,8 +1075,13 @@ def make_job(
              for i in range(num_tasks)]
   for thread in threads:
     thread.start()
+
   for thread in threads:
-    thread.join()
+    while thread.is_alive():
+      thread.join(timeout=30)
+      if thread.is_alive():
+        util.log(f"still waiting for {thread.getName()}")
+
   print("Exception are ", exceptions)
   if exceptions:
     raise exceptions[0]

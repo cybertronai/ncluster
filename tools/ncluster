@@ -307,11 +307,7 @@ def mosh(fragment=''):
 
 
 def print_efs_mount_command():
-  region = u.get_region()
-  efs_id = u.get_efs_dict()[u.get_prefix()]
-  dns = f"{efs_id}.efs.{region}.amazonaws.com"
-  print('sudo mkdir -p /ncluster')
-  print(f"sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster")
+  print(u.get_efs_mount_command())
 
 
 def efs(_):

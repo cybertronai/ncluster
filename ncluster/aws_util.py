@@ -954,3 +954,11 @@ def assert_zone_specific_config():
 def get_security_group_names() -> List[str]:
   """Returns all security group names associated with given ncluster configuration."""
   return [get_security_group_name(), get_security_group_nd_name()]
+
+
+def get_efs_mount_command():
+  region = get_region()
+  efs_id = get_efs_dict()[get_prefix()]
+  dns = f"{efs_id}.efs.{region}.amazonaws.com"
+  cmd = f'sudo mkdir -p /ncluster && sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster'
+  return cmd
