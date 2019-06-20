@@ -147,7 +147,10 @@ class Task(backend.Task):
     if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
       self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
       # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
-      assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
+      #assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
+
+      if not self._is_efs_mounted():
+        self._mount_efs()
     else:
       self.log("running install script")
 
@@ -791,6 +794,12 @@ class Run(backend.Run):
     self.jobs = jobs
     self.kwargs = kwargs
     self.placement_group = name + '-' + util.random_id()
+
+    if 'NCLUSTER_AWS_PLACEMENT_GROUP' in os.environ:
+      placement_group = os.environ['NCLUSTER_AWS_PLACEMENT_GROUP']
+      util.log(f"Overriding placement group through NCLUSTER_AWS_PLACEMENT_GROUP={placement_group}")
+      self.placement_group = placement_group
+
     util.log(f"Choosing placement_group for run {name} to be {self.placement_group}")
 
   @property
