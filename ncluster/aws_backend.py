@@ -31,6 +31,8 @@ _RAW_INSTANCE_INFO = [
     ['p3dn.24xlarge', 31.212, 8, 32],
     ['c5.18xlarge', 3.06, None, None],
     ['c5n.18xlarge', 3.888, None, None],
+    ['c5d.9xlarge', 1.728, None, None],
+    ['c5d.18xlarge', 3.456, None, None],
     ['m4.2xlarge', 0.40, None, None],
     ['r5.large', 0.126, None, None],
     ['t2.nano', 0.005, None, None],
