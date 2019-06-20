@@ -187,7 +187,6 @@ def connect(fragment=''):
     print(f"Connecting to  {u.get_name(instance)} "
           f"launched by {instance.key_name}")
 
-  _user_keypair_check(instance)
   user_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
              f"-o ServerAliveCountMax=1 " \
              f"-o ServerAliveInterval=60 " \
