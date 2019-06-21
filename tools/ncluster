@@ -474,10 +474,11 @@ def fix_default_security_group(_):
   peer(group2, group1)
 
 
-def keygen(_):
+def keys(_):
   """runs ssh-keygen if necessary, prints public key."""
-  util.setup_local_ssh_keys()
-  print(f'export NCLUSTER_AUTHORIZED_KEYS="{util.get_authorized_keys()}"')
+  key = util.get_public_key()
+  print("Your public key is below. Append all of your your team-members  public keys to NCLUSTER_AUTHORIZED_KEYS env var separated by ; ie \nNCLUSTER_AUTHORIZED_KEYS=<key1>;<key2>;<key3>\n")
+  print(key)
 
 
 COMMANDS = {
@@ -503,7 +504,7 @@ COMMANDS = {
   'reboot': reboot,
   'launch': launch,
   'fix_default_security_group': fix_default_security_group,
-  'keygen': keygen,
+  'keys': keys,
   'connect': connect,
 }
 
