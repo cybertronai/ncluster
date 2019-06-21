@@ -247,6 +247,12 @@ def get_account_name() -> str:
   else:
     return ''
 
+
+def get_iam_username() -> str:
+  iam_client = boto3.client('iam')
+  return iam_client.get_user()['User']['UserName']
+
+
 def get_region() -> str:
   return get_session().region_name
 

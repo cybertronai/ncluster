@@ -43,6 +43,7 @@ ncluster kill \'<exact match>\'
 ncluster stop <substring>    # stops matching instances
 ncluster start <substring>   # starts matching stopped instances
 ncluster nano       # starts a tiny instance
+ncluster keys   # information on enabling SSH access for your team-members
 
 ncluster ssh_    # like ssh but works on dumb terminals
 ncluster ls     

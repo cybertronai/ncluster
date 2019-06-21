@@ -242,15 +242,23 @@ def setup_local_ssh_keys() -> str:
   return ID_RSA_PUB
 
 
-def get_public_key() -> str:
+def get_authorized_keys() -> str:
   """Appends local public key to NCLUSTER_AUTHORIZED_KEYS and returns in format key1;key2;key3;
   The result can be assigned back to NCLUSTER_AUTHORIZED_KEYS env var"""
+
+  assert os.path.exists(ID_RSA_PUB), f"{ID_RSA_PUB} not found, make sure to run 'ncluster keys'"
+
+  current_key = open(ID_RSA_PUB).read().strip()
+  auth_keys = os.environ.get('NCLUSTER_AUTHORIZED_KEYS', '')
+  return auth_keys+';'+current_key+';'
+
+
+def get_public_key() -> str:
+  """Returns public key, creating it if needed"""
 
   if not os.path.exists(ID_RSA_PUB):
     print(f"{ID_RSA_PUB} not found, running sure to run setup_local_ssh_keys()")
     setup_local_ssh_keys()
     assert os.path.exists(ID_RSA_PUB)
 
-  current_key = open(ID_RSA_PUB).read().strip()
-  #auth_keys = os.environ.get('NCLUSTER_AUTHORIZED_KEYS', '')
-  return current_key
+  return open(ID_RSA_PUB).read().strip()

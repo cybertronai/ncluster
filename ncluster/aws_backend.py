@@ -936,12 +936,21 @@ def make_task(
             'SecurityGroupIds': [security_group.id],
             'KeyName': keypair.name}
 
+    import getpass
+    linux_user = getpass.getuser()
+    aws_user = u.get_iam_username()
+
     args['TagSpecifications'] = [{
       'ResourceType': 'instance',
       'Tags': [{
         'Key': 'Name',
         'Value': name
-      }]
+        },
+        {'Key': 'User',
+         'Value': aws_user},
+        {'Key': 'UserLinux',
+         'Value': linux_user}
+      ]
     }]
 
     placement_specs = {}
