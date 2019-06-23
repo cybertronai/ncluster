@@ -531,31 +531,47 @@ def parse_key_name(keyname) -> List[str]:
     return toks
 
 
-aws_name_regexp = re.compile('^[a-zA-Z0-9+-=._:/@]*$')
+###################
+# Name validation:
+# task name is used in machine name so must match AWS resource naming restrictions
+# run name is used in EFS directory name, so use a subset of Posix directory naming requirements
+# prefix is used for both AWS resources and Unix file names so must match both
+###################
+
+aws_name_regexp_str = re.compile('^[a-zA-Z0-9+-=._:/@]*$')
+aws_name_regexp = re.compile(aws_name_regexp_str)
 
 
 def validate_aws_name(name) -> None:
   """Validate resource name using AWS name restrictions from # http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/Using_Tags.html#tag-restrictions"""
   assert len(name) <= 127
   # disallow unicode characters to avoid pain
-  assert name == name.encode('ascii').decode('ascii')
-  assert aws_name_regexp.match(name)
+  assert name == name.encode('ascii').decode('ascii'), f"Non-ascii chars found in '{name}"
+  assert aws_name_regexp.match(name), f"Creating AWS resource with illegal characters, '{name}' must match regexp '{aws_name_regexp_str}'"
 
 
-resource_regexp = re.compile('^[a-z0-9]+$')
+def validate_task_name(name):
+  assert name == name.encode('ascii').decode('ascii'), f"Non-ascii chars found in '{name}'"
+  assert aws_name_regexp.match(name), f"Task name '{name}' must match regexp '{aws_name_regexp_str}'"
+
+
+posix_regexp_str = '^[-_a-z0-9]+$'
+posix_regexp = re.compile(posix_regexp_str)
 
 
 def validate_prefix(name):
   """Check that name is valid as substitute for default prefix. Since it's used in unix filenames, key names, be more conservative than AWS requirements, just allow 30 chars, lowercase only."""
   assert len(name) <= 30
-  assert resource_regexp.match(name)
+  assert posix_regexp.match(name), f"Prefix '{name}' must match '{posix_regexp_str}'"
   validate_aws_name(name)
 
 
 def validate_run_name(name):
   """Name used for run. Used as part of instance name, tmux session name."""
   assert len(name) <= 30
-  validate_aws_name(name)
+  assert name == name.encode('ascii').decode('ascii'), f"Non-ascii chars found in '{name}"
+  if name:  # allow empty run name
+    assert posix_regexp.match(name), f"Run name '{name}' must match '{posix_regexp_str}'"
 
 
 def create_name_tags(name):
@@ -968,3 +984,4 @@ def get_efs_mount_command():
   dns = f"{efs_id}.efs.{region}.amazonaws.com"
   cmd = f'sudo mkdir -p /ncluster && sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster'
   return cmd
+

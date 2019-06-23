@@ -885,6 +885,9 @@ def make_task(
   name = ncluster_globals.auto_assign_task_name_if_needed(name, instance_type,
                                                           image_name)
 
+  u.validate_run_name(run_name)
+  u.validate_task_name(name)
+
   if not instance_type:
     instance_type: str = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
     log("Using instance " + instance_type)
