@@ -28,11 +28,17 @@ if 'NCLUSTER_BACKEND' in os.environ:
 else:
   set_backend('aws')
 
-# print custom settings
+# whitelist of settings customizable through env vars. Should keep this small to avoid complexity.
+ncluster_env_whitelist = {'NCLUSTER_IMAGE', 'NCLUSTER_AWS_FAST_ROOTDISK', 'NCLUSTER_ZONE',
+                          'NCLUSTER_AUTHORIZED_KEYS', 'NCLUSTER_AWS_PLACEMENT_GROUP', 'NCLUSTER_DISABLE_PDB_HANDLER'}
+
+# print/validate custom settings
 for v in os.environ:
   if v.startswith('NCLUSTER'):
+    assert v in ncluster_env_whitelist, f"Custom setting '{v}'='{os.environ[v]}' not in ncluster_env_whitelist, if you" \
+      f"are sure you need this setting, add it to the whitelist in __init__.py, otherwise 'unset {v}'"
     if v == 'NCLUSTER_AUTHORIZED_KEYS':
-      continue  # don't spam console since this could be set by default
+      continue  # don't spam console since this is often set by default
     print(f"ncluster env setting {v}={os.environ[v]}")
 
 if not util.is_set('NCLUSTER_DISABLE_PDB_HANDLER'):
