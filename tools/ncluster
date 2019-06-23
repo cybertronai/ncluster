@@ -481,6 +481,14 @@ def keys(_):
   print(key)
 
 
+def image_from_id(image_id: str):
+  """Looks up image name from image id like 'ami-0cc96feef8c6bbff3'"""
+  assert image_id.startswith('ami-')
+  ec2 = u.get_ec2_resource()
+  images = list(ec2.images.all())
+  return [im for im in images if im.id == image_id][0].name
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -506,6 +514,7 @@ COMMANDS = {
   'fix_default_security_group': fix_default_security_group,
   'keys': keys,
   'connect': connect,
+  'image_from_id': image_from_id,
 }
 
 
