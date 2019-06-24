@@ -49,7 +49,10 @@ NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method 
 DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 
 # some image which is fast to load, to use for quick runs
-# GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
+
+# get id from https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#LaunchInstanceWizard:
+# then "ncluster lookup_image_name  ami-0cc96feef8c6bbff3"
+GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20190612-x86_64-gp2'
 
 
 def check_cmd(cmd):
@@ -924,7 +927,8 @@ def make_task(
     if is_chief:
       u.maybe_create_placement_group(run.placement_group)
 
-  assert image_name
+  if not image_name:
+    image_name = GENERIC_SMALL_IMAGE
   #    image_name = os.environ.get('NCLUSTER_IMAGE', GENERIC_SMALL_IMAGE)
 
   image = u.lookup_image(image_name)

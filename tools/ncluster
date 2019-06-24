@@ -406,15 +406,6 @@ def cleanup_placement_groups(*_args):
       print("failed")
 
 
-def lookup_image_name(image_id):
-  """Looks up image name given image id"""
-  ec2 = u.get_ec2_resource()
-  images = list(ec2.images.all())
-  selected_images = [im for im in images if im.id == image_id]
-  assert selected_images, f"No images found with id={image_id}"
-  print(selected_images[0].name)
-
-
 # ncluster launch --image_name=dlami23-efa --instance_type=c5.large --name=test
 def launch(args_str):
   import argparse
@@ -484,12 +475,15 @@ def keys(_):
   print(key)
 
 
-def image_from_id(image_id: str):
+def lookup_image_name(image_id: str):
   """Looks up image name from image id like 'ami-0cc96feef8c6bbff3'"""
   assert image_id.startswith('ami-')
   ec2 = u.get_ec2_resource()
   images = list(ec2.images.all())
-  return [im for im in images if im.id == image_id][0].name
+  assert images, f"No images found with id={image_id}"
+  image = [im for im in images if im.id == image_id][0]
+  print(image.name)
+  return image.name
 
 
 def grow_disks(fragment: str, target_size_gb=500):
@@ -540,7 +534,6 @@ COMMANDS = {
   'fix_default_security_group': fix_default_security_group,
   'keys': keys,
   'connect': connect,
-  'image_from_id': image_from_id,
   'grow_disks': grow_disks,
   'disks': disks,
 }
