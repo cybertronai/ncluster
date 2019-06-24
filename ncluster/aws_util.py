@@ -572,7 +572,7 @@ def parse_key_name(keyname) -> List[str]:
 
 ###################
 # Name validation:
-# task name is used in machine name so must match AWS resource naming restrictions
+# task name is used in machine name so must match AWS resource naming restrictions. Also no . because that's used by ncluster naming convention
 # run name is used in EFS directory name, so use a subset of Posix directory naming requirements
 # prefix is used for both AWS resources and Unix file names so must match both
 ###################
@@ -592,6 +592,7 @@ def validate_aws_name(name) -> None:
 
 def validate_task_name(name):
   assert name == name.encode('ascii').decode('ascii'), f"Non-ascii chars found in '{name}'"
+  assert '.' not in name, f"can't use . in task name '{name}'"
   assert aws_name_regexp.match(name), f"Task name '{name}' must match regexp '{aws_name_regexp_str}'"
 
 
