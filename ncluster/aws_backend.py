@@ -49,7 +49,7 @@ NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method 
 DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 
 # some image which is fast to load, to use for quick runs
-GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
+# GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
 
 
 def check_cmd(cmd):
@@ -102,7 +102,7 @@ class Task(backend.Task):
     # TODO(y): this logic is duplicated in aws_util, reuse that function instead
     # heuristic to tell if I'm using Amazon image name
     # default image has name like 'amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2'
-    if 'amzn' in image_name.lower() or 'amazon' in image_name.lower() or image_name.startswith('dlami23-efa'):
+    if u.is_amazon_ami(image_name):
       self.log('Detected Amazon Linux image')
       self._linux_type = 'amazon'
     self.run_counter = 0
@@ -115,12 +115,21 @@ class Task(backend.Task):
 
     # _current_directory tracks current directory on task machine
     # used for uploading without specifying absolute path on target machine
-    if self._linux_type == 'ubuntu':
-      #      self._current_directory = '/home/ubuntu'
-      self.ssh_username = 'ubuntu'  # default username on task machine
-    elif self._linux_type == 'amazon':
-      #      self._current_directory = '/home/ec2-user'
-      self.ssh_username = 'ec2-user'
+    manual_username = util.get_env('NCLUSTER_SSH_USERNAME')
+    if manual_username:
+      self.log(f"manual SSH username '{manual_username}' specified")
+      self.ssh_username = manual_username
+      if manual_username == 'ec2-user':
+        self._linux_type = 'amazon'
+    else:
+      if self._linux_type == 'ubuntu':
+        #      self._current_directory = '/home/ubuntu'
+        self.ssh_username = 'ubuntu'  # default username on task machine
+      elif self._linux_type == 'amazon':
+        #      self._current_directory = '/home/ec2-user'
+        self.ssh_username = 'ec2-user'
+      self.log(f"Autodetecting username '{self.ssh_username}'")
+
     self.homedir = '/home/' + self.ssh_username
 
     self.ssh_client = u.ssh_to_task(self)
@@ -144,8 +153,9 @@ class Task(backend.Task):
     self._install_script_fn = f'_ncluster_install_script'   # launcher initialiation
 
     # Part 1: user initialization
-    if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
-      self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
+    #  if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
+    if self._is_install_script_fn_present():
+      #  self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
       # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
       # assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
 
@@ -161,13 +171,13 @@ class Task(backend.Task):
       self.run('bash -e install.sh')  # fail on errors
       assert self._is_install_script_fn_present(), f"Install script didn't write to {self._install_script_fn}"
 
-    assert not (ncluster_globals.should_skip_setup() and util.is_set('NCLUSTER_FORCE_SETUP')), f"User setting NCLUSTER_FORCE_SETUP is enabled, but API requested task with no setup, unset NCLUSTER_FORCE_SETUP and try again."
+    #  assert not (ncluster_globals.should_skip_setup() and util.is_set('NCLUSTER_FORCE_SETUP')), f"User setting NCLUSTER_FORCE_SETUP is enabled, but API requested task with no setup, unset NCLUSTER_FORCE_SETUP and try again."
 
     # Part 2: launcher initialization
     if ncluster_globals.should_skip_setup():  # API-level flag ..make_task(..., skip_setup=True)
       should_run_setup = False
-    elif util.is_set('NCLUSTER_FORCE_SETUP'):
-      should_run_setup = True
+    #    elif util.is_set('NCLUSTER_FORCE_SETUP'):
+    #      should_run_setup = True
     elif self._is_initialized_fn_present():
       should_run_setup = False              # default settings + reusing previous machine
     else:
@@ -260,9 +270,10 @@ class Task(backend.Task):
       self._run_raw('sudo yum install tmux -y')
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
-    if not util.is_set("NCLUSTER_NOKILL_TMUX") and not ncluster_globals.should_skip_setup():
-      self._run_raw(f'tmux kill-session -t {self.tmux_session}',
-                    ignore_errors=True)
+#      if not util.is_set("NCLUSTER_NOKILL_TMUX") and not ncluster_globals.should_skip_setup():
+      if not ncluster_globals.should_skip_setup():
+          self._run_raw(f'tmux kill-session -t {self.tmux_session}',
+                        ignore_errors=True)
     else:
       print(
         "Warning, NCLUSTER_NOKILL_TMUX or skip_setup is set, make sure remote tmux prompt is available or things will hang")
@@ -914,8 +925,8 @@ def make_task(
     if is_chief:
       u.maybe_create_placement_group(run.placement_group)
 
-  if not image_name:
-    image_name = os.environ.get('NCLUSTER_IMAGE', GENERIC_SMALL_IMAGE)
+  assert image_name
+  #    image_name = os.environ.get('NCLUSTER_IMAGE', GENERIC_SMALL_IMAGE)
 
   image = u.lookup_image(image_name)
   log(f"Using image '{image_name}' ({image.id})")

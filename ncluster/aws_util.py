@@ -1,4 +1,4 @@
-"""Methods used in aws_backend, but also useful for standalone prototyping in Jupyter"""
+"""Methods used in aws_backend, but also useful for standalone prototyping in Jupyter."""
 
 import os
 import re
@@ -24,12 +24,17 @@ import boto3
 
 from . import util
 
+from .util import VALID_REGIONS
+
 EMPTY_NAME = "noname"  # name to use when name attribute is missing on AWS
 RETRY_INTERVAL_SEC = 1  # how long to wait before retries
 RETRY_TIMEOUT_SEC = 60  # how long to wait before retrying fails
 DEFAULT_PREFIX = 'ncluster'
 PRIVATE_KEY_LOCATION = os.environ['HOME'] + '/.ncluster'
 DUPLICATE_CHECKING = False
+
+# allow referring to local methods as u.<method>, for easier moving of code between this module and others
+u = sys.modules[__name__]
 
 
 # Can't annotate boto3 return types because they are missing stubs
@@ -259,9 +264,20 @@ def get_region() -> str:
   return get_session().region_name
 
 
+def set_region(region: str) -> None:
+  assert region in VALID_REGIONS, f"region '{region}' is not valid, valid regions are [{','.join(VALID_REGIONS)}]"
+  util.set_env('AWS_DEFAULT_REGION', region)
+
+
 def get_zone() -> str:
   """Returns current zone, or empty string if it's unset."""
-  return os.environ.get('NCLUSTER_ZONE', '')
+  return util.get_env('NCLUSTER_ZONE')
+
+
+def set_zone(zone: str) -> None:
+  current_region = u.get_region()
+  assert zone.startswith(current_region), f'Current zone "{zone}" ($NCLUSTER_ZONE) is not in current region "{current_region} ($AWS_DEFAULT_REGION), change either $NCLUSTER_ZONE or AWS_DEFAULT_REGION'
+  util.set_env('NCLUSTER_ZONE', zone)
 
 
 def get_zones() -> List[str]:
@@ -330,7 +346,7 @@ def get_security_group_name() -> str:
 
 def get_security_group_nd_name() -> str:
   """Security group for non-default VPC"""
-  return get_prefix()+'_nd'
+  return get_prefix() + '_nd'
 
 
 def get_gateway_name() -> str:
@@ -372,9 +388,18 @@ def lookup_image(wildcard) -> Image:
   return images[0]
 
 
+def is_amazon_ami(image_name):
+  """Heuristic to tell if given image name is Amazon Linux image."""
+  image_name = image_name.lower()
+  return 'amzn' in image_name or 'amazon' in image_name or image_name.startswith('dlami23-efa') or image_name.startswith('basic-efa')
+
+
 def get_aws_username(instance) -> str:
   image_name = instance.image.name.lower()
-  if 'amzn' in image_name or 'amazon' in image_name or image_name.startswith('dlami23-efa'):
+  if util.get_env('NCLUSTER_SSH_USERNAME'):
+    return util.get_env('NCLUSTER_SSH_USERNAME')
+
+  if is_amazon_ami(image_name):
     print("Auto-detected Amazon Linux, using ec2-user ssh name")
     return 'ec2-user'
   else:
@@ -561,7 +586,8 @@ def validate_aws_name(name) -> None:
   assert len(name) <= 127
   # disallow unicode characters to avoid pain
   assert name == name.encode('ascii').decode('ascii'), f"Non-ascii chars found in '{name}"
-  assert aws_name_regexp.match(name), f"Creating AWS resource with illegal characters, '{name}' must match regexp '{aws_name_regexp_str}'"
+  assert aws_name_regexp.match(
+    name), f"Creating AWS resource with illegal characters, '{name}' must match regexp '{aws_name_regexp_str}'"
 
 
 def validate_task_name(name):
@@ -900,81 +926,83 @@ def instance_supports_efa(instance_type: str) -> bool:
 
 
 def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
-    """
+  """
     args:
       spot_price: default is $26 which is right above p3.16xlarge on demand price
       expiration_mins: this request only valid for this many mins from now
     """
-    ec2c = get_ec2_client()
+  ec2c = get_ec2_client()
 
-    num_tasks = launch_specs['MinCount'] or 1
-    if 'MinCount' in launch_specs:
-      del launch_specs['MinCount']
-    if 'MaxCount' in launch_specs:
-      del launch_specs['MaxCount']
-    tags = None
-    if 'TagSpecifications' in launch_specs: 
-      try:
-        tags = launch_specs['TagSpecifications'][0]['Tags']
-      except Exception:  # Tags entry not present
-        pass
-      del launch_specs['TagSpecifications']
-
-    import pytz      # datetime is not timezone aware, use pytz to fix
-    import datetime as dt
-    now = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
-
-    spot_args = {}
-    spot_args['LaunchSpecification'] = launch_specs
-    spot_args['SpotPrice'] = str(spot_price)
-    spot_args['InstanceCount'] = num_tasks
-    spot_args['ValidUntil'] = now + dt.timedelta(minutes=expiration_mins)
-
+  num_tasks = launch_specs['MinCount'] or 1
+  if 'MinCount' in launch_specs:
+    del launch_specs['MinCount']
+  if 'MaxCount' in launch_specs:
+    del launch_specs['MaxCount']
+  tags = None
+  if 'TagSpecifications' in launch_specs:
     try:
-      spot_requests = ec2c.request_spot_instances(**spot_args)
-    except Exception as e:
-      assert False, f"Spot instance request failed (out of capacity?), error was {e}"
-      
-    spot_requests = spot_requests['SpotInstanceRequests']
-    instance_ids = wait_on_fulfillment(ec2c, spot_requests)
-    
-    print('Instances fullfilled...')
-    ec2 = get_ec2_resource()
-    instances = list(ec2.instances.filter(Filters=[{'Name': 'instance-id', 'Values': list(filter(None, instance_ids))}]))
+      tags = launch_specs['TagSpecifications'][0]['Tags']
+    except Exception:  # Tags entry not present
+      pass
+    del launch_specs['TagSpecifications']
 
-    if not all(instance_ids):
-      for i in instances: 
-        i.terminate()
-      raise RuntimeError('Failed to create spot instances:', instance_ids)
+  import pytz  # datetime is not timezone aware, use pytz to fix
+  import datetime as dt
+  now = dt.datetime.utcnow().replace(tzinfo=pytz.utc)
 
-    if tags:
-      for i in instances:
-          i.create_tags(Tags=tags)
+  spot_args = {}
+  spot_args['LaunchSpecification'] = launch_specs
+  spot_args['SpotPrice'] = str(spot_price)
+  spot_args['InstanceCount'] = num_tasks
+  spot_args['ValidUntil'] = now + dt.timedelta(minutes=expiration_mins)
 
-    return instances
+  try:
+    spot_requests = ec2c.request_spot_instances(**spot_args)
+  except Exception as e:
+    assert False, f"Spot instance request failed (out of capacity?), error was {e}"
+
+  spot_requests = spot_requests['SpotInstanceRequests']
+  instance_ids = wait_on_fulfillment(ec2c, spot_requests)
+
+  print('Instances fullfilled...')
+  ec2 = get_ec2_resource()
+  instances = list(ec2.instances.filter(Filters=[{'Name': 'instance-id', 'Values': list(filter(None, instance_ids))}]))
+
+  if not all(instance_ids):
+    for i in instances:
+      i.terminate()
+    raise RuntimeError('Failed to create spot instances:', instance_ids)
+
+  if tags:
+    for i in instances:
+      i.create_tags(Tags=tags)
+
+  return instances
 
 
 def wait_on_fulfillment(ec2c, reqs):
-    def get_instance_id(req):
-      while req['State'] != 'active':
-          print('Waiting on spot fullfillment...')
-          time.sleep(5)
-          reqs_ = ec2c.describe_spot_instance_requests(Filters=[{'Name': 'spot-instance-request-id', 'Values': [req['SpotInstanceRequestId']]}])
-          if not reqs_['SpotInstanceRequests']:
-            print(f"SpotInstanceRequest for {req['SpotInstanceRequestId']} not found")
-            continue
-          req = reqs_['SpotInstanceRequests'][0]
-          req_status = req['Status']
-          if req_status['Code'] not in ['pending-evaluation', 'pending-fulfillment', 'fulfilled']:
-              print('Spot instance request failed:', req_status['Message'])
-              print('Cancelling request. Please try again or use on demand.')
-              ec2c.cancel_spot_instance_requests(SpotInstanceRequestIds=[req['SpotInstanceRequestId']])
-              print(req)
-              return None
-      instance_id = req['InstanceId']
-      print('Fulfillment completed. InstanceId:', instance_id)
-      return instance_id
-    return [get_instance_id(req) for req in reqs]
+  def get_instance_id(req):
+    while req['State'] != 'active':
+      print('Waiting on spot fullfillment...')
+      time.sleep(5)
+      reqs_ = ec2c.describe_spot_instance_requests(
+        Filters=[{'Name': 'spot-instance-request-id', 'Values': [req['SpotInstanceRequestId']]}])
+      if not reqs_['SpotInstanceRequests']:
+        print(f"SpotInstanceRequest for {req['SpotInstanceRequestId']} not found")
+        continue
+      req = reqs_['SpotInstanceRequests'][0]
+      req_status = req['Status']
+      if req_status['Code'] not in ['pending-evaluation', 'pending-fulfillment', 'fulfilled']:
+        print('Spot instance request failed:', req_status['Message'])
+        print('Cancelling request. Please try again or use on demand.')
+        ec2c.cancel_spot_instance_requests(SpotInstanceRequestIds=[req['SpotInstanceRequestId']])
+        print(req)
+        return None
+    instance_id = req['InstanceId']
+    print('Fulfillment completed. InstanceId:', instance_id)
+    return instance_id
+
+  return [get_instance_id(req) for req in reqs]
 
 
 def assert_zone_specific_config():
