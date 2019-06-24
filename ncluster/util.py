@@ -28,6 +28,7 @@ env_settings = {
   #  'NCLUSTER_IMAGE',
   'NCLUSTER_SSH_USERNAME',            # used as workaround when Amazon Linux detection fails
   'NCLUSTER_ZONE',                    # zone spec for when automatic zone fails (p3dn's + spot instances)
+  'NCLUSTER_AWS_FORCE_CREATE_RESOURCES',  # AWS resources are created ignoring automatic existence checks
 }
 
 

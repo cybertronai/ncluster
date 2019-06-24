@@ -226,8 +226,9 @@ def kill(fragment: str = '', stop_instead_of_kill: bool = False):
   ec2_client = u.get_ec2_client()
   # don't ask for confirmation when stopping, erronous stopping has milder consequences
   num_instances = len(instances_to_kill)
-  if util.is_set("NCLUSTER_SKIP_CONFIRMATION") or stop_instead_of_kill:
-    print("NCLUSTER_SKIP_CONFIRMATION is set or stop_instead_of_kill, skipping confirmation")
+  #  if util.is_set("NCLUSTER_SKIP_CONFIRMATION") or stop_instead_of_kill:
+  #  print("NCLUSTER_SKIP_CONFIRMATION is set or stop_instead_of_kill, skipping confirmation")
+  if stop_instead_of_kill:
     answer = 'y'
   else:
     answer = input(f"{num_instances} instances found, {action} in {u.get_region()}? (y/N) ")
