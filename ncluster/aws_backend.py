@@ -988,6 +988,10 @@ def make_task(
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
 
+    if instance_type == 'p3dn.24xlarge':
+      device = '/dev/xvda'
+    else:
+      device = '/dev/sda1'
     if disk_size:
       assert disk_size > 0
       ebs = {
@@ -996,7 +1000,7 @@ def make_task(
       }
 
       args['BlockDeviceMappings'] = [{
-        'DeviceName': '/dev/sda1',
+        'DeviceName': device,
         'Ebs': ebs
       }]
 
@@ -1011,7 +1015,7 @@ def make_task(
       }
 
       args['BlockDeviceMappings'] = [{
-        'DeviceName': '/dev/sda1',
+        'DeviceName': device,
         'Ebs': ebs
       }]
 
