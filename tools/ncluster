@@ -504,7 +504,6 @@ def grow_disks(fragment: str, target_size_gb=500):
       print("Growing %s to %s" % (volume.id, target_size_gb))
       response = client.modify_volume(VolumeId=volume.id, Size=target_size_gb)
       assert u.is_good_response(response)
-      break
 
 
 def disks(fragment):
