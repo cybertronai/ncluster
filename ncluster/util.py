@@ -1,6 +1,5 @@
 """
-Various helper utilities used internally by ncluster project, but may be potentially
-useful outside of the cluster project.
+Various helper utilities used internally by ncluster project, that are not explicitly tied to AWS
 """
 
 import os
@@ -11,11 +10,60 @@ import time
 from collections import Iterable
 import shlex
 
-# starting value for now_micros (Aug 31, 2018)
-# using this to make various timestamped names shorter
+from typing import Optional
+
 import portalocker
 
+# starting value for now_micros (Aug 31, 2018), using this to make various timestamped names shorter
 EPOCH_MICROS = 1535753974788163
+
+
+# Whitelist of temporary settings customizable through env vars. These are work-arounds for issues that are
+# don't have permanent solutions yet. Keep this small to avoid many moving parts.
+env_settings = {
+  'NCLUSTER_AUTHORIZED_KEYS',         # public keys used to authorize ssh access on all instances
+  'NCLUSTER_AWS_FAST_ROOTDISK',       # request $1/hour high performance AWS disk
+  'NCLUSTER_AWS_PLACEMENT_GROUP',     # name of placement group to use, use when reusing part of job from previous launch
+  'NCLUSTER_DISABLE_PDB_HANDLER',     # don't intercept pdb exception by default
+  #  'NCLUSTER_IMAGE',
+  'NCLUSTER_SSH_USERNAME',            # used as workaround when Amazon Linux detection fails
+  'NCLUSTER_ZONE',                    # zone spec for when automatic zone fails (p3dn's + spot instances)
+}
+
+
+# keep this here instead of aws_backend because it's used by its dependency aws_util
+VALID_REGIONS = ['us-east-2',
+                 'us-east-1',
+                 'us-west-1',       # An error occurred (Unsupported) when calling the RunInstances operation
+                 'us-west-2',
+                 'ap-east-1',       # doesn't have ec2
+                 'ap-south-1',      # no EFS
+                 'ap-northeast-3',  # An error occurred (OptInRequired) when calling the DescribeVpcs operation
+                 'ap-northeast-2',
+                 'ap-southeast-1',
+                 'ap-southeast-2',
+                 'ap-northeast-1',
+                 'ca-central-1',
+                 'cn-north-1',      # account number
+                 'cn-northwest-1',  # account number
+                 'eu-central-1',
+                 'eu-west-1',
+                 'eu-west-2',
+                 'eu-west-3',       # no EFS
+                 'eu-north-1',      # no EFS
+                 'sa-east-1',       # no EFS
+                 'us-gov-east-1',   # not authorized
+                 'us-gov-west-1',   # not authorized
+                 ]
+
+# print/validate custom settings
+for v in os.environ:
+  if v.startswith('NCLUSTER'):
+    assert v in env_settings, f"Custom setting '{v}'='{os.environ[v]}' not in settings whitelist, if you" \
+      f"are sure you need this setting, add it to the env_settings in {os.path.basename(__file__)}, otherwise 'unset {v}'"
+    if v == 'NCLUSTER_AUTHORIZED_KEYS':
+      continue  # don't spam console since this is often set by default
+    print(f"ncluster env setting {v}={os.environ[v]}")
 
 
 def is_iterable(k):
@@ -169,11 +217,25 @@ def is_bash_builtin(cmd):
   return False
 
 
-def is_set(name) -> bool:
+def is_set(name: str) -> bool:
   """Helper method to check if given property is set"""
+  assert name in env_settings
+
   val = os.environ.get(name, '0')
   assert val == '0' or val == '1', f"env var {name} has value {val}, expected 0 or 1"
   return val == '1'
+
+
+def get_env(name: str) -> Optional[str]:
+  """Helper method to retrieve custom env setting, returns None if not set"""
+  assert name in env_settings
+  return os.environ.get(name, None)
+
+
+def set_env(name: str, value: str) -> None:
+  """Helper method to set custom env setting"""
+  assert name in env_settings
+  os.environ[name] = value
 
 
 def assert_script_in_current_directory():
