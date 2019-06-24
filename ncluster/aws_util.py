@@ -379,10 +379,10 @@ def get_aws_username(instance) -> str:
     return 'ubuntu'
 
 
-def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
-                    states: tuple = ('running', 'stopped', 'initializing'),
-                    limit_to_current_user=False) -> Optional[Instance]:
-  """Looks up AWS instance for given instance name, like
+def lookup_instance_exact(name: str, instance_type: str = '', image_name: str = '',
+                          states: tuple = ('running', 'stopped', 'initializing'),
+                          limit_to_current_user=False) -> Optional[Instance]:
+  """Looks up AWS instance for given instance name using exact matching, like
    simple.worker. If no instance found in current AWS environment, returns None. """
 
   ec2 = get_ec2_resource()
@@ -424,6 +424,16 @@ def lookup_instance(name: str, instance_type: str = '', image_name: str = '',
       return None
     else:
       return result[0]
+
+
+def lookup_instance(fragment=''):
+  """Wrapper around lookup_instances that checks returns a single unambiguous matching instance."""
+
+  instances = lookup_instances(fragment)
+  assert instances, f"Didn't find any instances matching '{fragment}'"
+  names = [get_name(i) for i in instances]
+  assert len(instances) == 1, f"Found multiple instances matching fragment {fragment}: {','.join(names)}"
+  return instances[0]
 
 
 def lookup_instances(fragment='', verbose=True, filter_by_key=False, valid_states=('running',),

@@ -491,16 +491,10 @@ def image_from_id(image_id: str):
   return [im for im in images if im.id == image_id][0].name
 
 
-def grow_disk(fragment: str, target_size_gb=500):
+def grow_disks(fragment: str, target_size_gb=500):
     """Grows main disk for given machine to 500GB"""
 
-    instances = u.lookup_instances(fragment)
-    if not _check_instance_found(instances, fragment):
-      return
-    instance = instances[0]
-    names = [u.get_name(i) for i in instances]
-    assert len(instances) == 1, f"Found multiple instances matching fragment {fragment}: {','.join(names)}"
-
+    instance = u.lookup_instance(fragment)
     client = u.get_ec2_client()
 
     volumes = list(instance.volumes.all())
@@ -509,6 +503,15 @@ def grow_disk(fragment: str, target_size_gb=500):
       print("Growing %s to %s" % (volume.id, target_size_gb))
       response = client.modify_volume(VolumeId=volume.id, Size=target_size_gb)
       assert u.is_good_response(response)
+
+
+def disks(fragment):
+  """Print disk information for instance."""
+  instance = u.lookup_instance(fragment)
+  print(f"Disks on instance '{u.get_name(instance)}'")
+  for volume in instance.volumes.all():
+    device = volume.attachments[0]['Device']
+    print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
 
 
 COMMANDS = {
@@ -537,7 +540,8 @@ COMMANDS = {
   'keys': keys,
   'connect': connect,
   'image_from_id': image_from_id,
-  'grow_disk': grow_disk
+  'grow_disks': grow_disks,
+  'disks': disks,
 }
 
 
