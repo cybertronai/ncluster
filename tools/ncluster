@@ -14,9 +14,9 @@ import ncluster
 from ncluster import aws_util as u
 from ncluster import util
 from ncluster.aws_backend import INSTANCE_INFO
-VERBOSE = False
-
 from boto3_type_annotations.ec2 import Volume
+
+VERBOSE = False
 
 
 def _run_shell(user_cmd):
@@ -503,6 +503,7 @@ def grow_disks(fragment: str, target_size_gb=500):
       print("Growing %s to %s" % (volume.id, target_size_gb))
       response = client.modify_volume(VolumeId=volume.id, Size=target_size_gb)
       assert u.is_good_response(response)
+      break
 
 
 def disks(fragment):

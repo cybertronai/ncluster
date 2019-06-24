@@ -147,7 +147,7 @@ class Task(backend.Task):
     if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
       self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
       # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
-      #assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
+      # assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
 
       if not self._is_efs_mounted():
         self._mount_efs()
@@ -904,7 +904,7 @@ def make_task(
     assert u.instance_supports_placement_groups(instance_type)
     assert run
 
-  instance = u.lookup_instance(name, instance_type, image_name)
+  instance = u.lookup_instance_exact(name, instance_type, image_name)
 
   # only create placement group for 1. new instances, 2. support for placement and 3. launched as part of a group
   # TODO(y) when reusing previous instances, run.placement_group will not correspond to actual placement name used, can fix this by querying instance attributes

@@ -5,6 +5,8 @@ import re
 import sys
 import time
 from collections import OrderedDict
+
+import botocore.exceptions
 import paramiko
 from operator import itemgetter
 
@@ -223,7 +225,7 @@ def get_account_number() -> str:
     if time.time() - start_time - RETRY_INTERVAL_SEC > RETRY_TIMEOUT_SEC:
       assert False, f"Timeout {RETRY_TIMEOUT_SEC} exceeded querying account number {retry_times} times"
     try:
-      sts_client:STS_Client = boto3.client('sts')
+      sts_client: STS_Client = boto3.client('sts')
       account_number = str(sts_client.get_caller_identity()['Account'])
       success = True
     except Exception as e:
@@ -387,6 +389,8 @@ def lookup_instance_exact(name: str, instance_type: str = '', image_name: str = 
 
   ec2 = get_ec2_resource()
 
+  # https://github.com/boto/boto3/issues/2000
+  # noinspection PyTypeChecker
   instances: ResourceCollection = ec2.instances.filter(
     Filters=[{'Name': 'instance-state-name', 'Values': states}])
 
@@ -856,7 +860,7 @@ def maybe_create_placement_group(name='', max_retries=10):
       try:
         _response = client.create_placement_group(GroupName=name,
                                                   Strategy='cluster')
-      except Exception as e:
+      except botocore.exceptions.ClientError as e:
         if 'PlacementGroupLimitExceeded' in str(e):
           print(e)
           assert False, "Clean-up placement groups using 'ncluster cleanup_placement_groups'"
@@ -895,14 +899,6 @@ def instance_supports_efa(instance_type: str) -> bool:
   return instance_type in ['c5n.18xlarge', 'i3en.24xlarge', 'p3dn.24xlarge']
 
 
-# instance_supports_100gbps_network = instance_supports_efa
-
-
-def assert_is_valid_instance(instance_type: str):
-  # TODO(y): check that instance type is correct to catch common errors
-  pass
-
-
 def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
     """
     args:
@@ -912,12 +908,16 @@ def create_spot_instances(launch_specs, spot_price=26, expiration_mins=15):
     ec2c = get_ec2_client()
 
     num_tasks = launch_specs['MinCount'] or 1
-    if 'MinCount' in launch_specs: del launch_specs['MinCount']
-    if 'MaxCount' in launch_specs: del launch_specs['MaxCount']
+    if 'MinCount' in launch_specs:
+      del launch_specs['MinCount']
+    if 'MaxCount' in launch_specs:
+      del launch_specs['MaxCount']
     tags = None
     if 'TagSpecifications' in launch_specs: 
-      try: tags = launch_specs['TagSpecifications'][0]['Tags']
-      except: pass
+      try:
+        tags = launch_specs['TagSpecifications'][0]['Tags']
+      except Exception:  # Tags entry not present
+        pass
       del launch_specs['TagSpecifications']
 
     import pytz      # datetime is not timezone aware, use pytz to fix
@@ -959,11 +959,11 @@ def wait_on_fulfillment(ec2c, reqs):
       while req['State'] != 'active':
           print('Waiting on spot fullfillment...')
           time.sleep(5)
-          reqs = ec2c.describe_spot_instance_requests(Filters=[{'Name': 'spot-instance-request-id', 'Values': [req['SpotInstanceRequestId']]}])
-          if not reqs['SpotInstanceRequests']:
+          reqs_ = ec2c.describe_spot_instance_requests(Filters=[{'Name': 'spot-instance-request-id', 'Values': [req['SpotInstanceRequestId']]}])
+          if not reqs_['SpotInstanceRequests']:
             print(f"SpotInstanceRequest for {req['SpotInstanceRequestId']} not found")
             continue
-          req = reqs['SpotInstanceRequests'][0]
+          req = reqs_['SpotInstanceRequests'][0]
           req_status = req['Status']
           if req_status['Code'] not in ['pending-evaluation', 'pending-fulfillment', 'fulfilled']:
               print('Spot instance request failed:', req_status['Message'])
@@ -994,4 +994,3 @@ def get_efs_mount_command():
   dns = f"{efs_id}.efs.{region}.amazonaws.com"
   cmd = f'sudo mkdir -p /ncluster && sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster'
   return cmd
-
