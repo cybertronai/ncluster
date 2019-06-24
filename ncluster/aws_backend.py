@@ -187,10 +187,9 @@ class Task(backend.Task):
       stdout, stderr = self.run_with_output('df')
       if '/ncluster' in stdout:
         self.log("Detected ncluster EFS")
-      elif not util.is_set("NCLUSTER_AWS_NOEFS"):
-        self._mount_efs()
+#      elif not util.is_set("NCLUSTER_AWS_NOEFS"):
       else:
-        util.log("Skipping EFS mount")
+        self._mount_efs()
 
       if '/tmpfs' in stdout:
         self.log("Detected ncluster tmpfs")
