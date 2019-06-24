@@ -16,6 +16,8 @@ from ncluster import util
 from ncluster.aws_backend import INSTANCE_INFO
 VERBOSE = False
 
+from boto3_type_annotations.ec2 import Volume
+
 
 def _run_shell(user_cmd):
   """Runs shell command, returns list of outputted lines
@@ -417,8 +419,8 @@ def launch(args_str):
   import argparse
   parser = argparse.ArgumentParser()
   parser.add_argument('--name', type=str, default='ncluster_launch', help="instance name")
-  parser.add_argument('--image_name', type=str, default='cybertronai01')
-  # can also use --image_name='Deep Learning AMI (Amazon Linux) Version 23.0'
+  parser.add_argument('--image_name', type=str, default='Deep Learning AMI (Ubuntu) Version 23.0')
+  # can also use --image_name='Deep Learning AMI (Amazon Linux) Version 23.0' # cybertronai01
   parser.add_argument('--instance_type', type=str, default='p3.2xlarge', help="type of instance")
   parser.add_argument('--disk_size', type=int, default=0, help="size of disk in GBs. If 0, use default size for the image")
   args = parser.parse_args(shlex.split(args_str))
@@ -489,6 +491,26 @@ def image_from_id(image_id: str):
   return [im for im in images if im.id == image_id][0].name
 
 
+def grow_disk(fragment: str, target_size_gb=500):
+    """Grows main disk for given machine to 500GB"""
+
+    instances = u.lookup_instances(fragment)
+    if not _check_instance_found(instances, fragment):
+      return
+    instance = instances[0]
+    names = [u.get_name(i) for i in instances]
+    assert len(instances) == 1, f"Found multiple instances matching fragment {fragment}: {','.join(names)}"
+
+    client = u.get_ec2_client()
+
+    volumes = list(instance.volumes.all())
+    for vol in volumes:
+      volume: Volume = vol
+      print("Growing %s to %s" % (volume.id, target_size_gb))
+      response = client.modify_volume(VolumeId=volume.id, Size=target_size_gb)
+      assert u.is_good_response(response)
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -515,6 +537,7 @@ COMMANDS = {
   'keys': keys,
   'connect': connect,
   'image_from_id': image_from_id,
+  'grow_disk': grow_disk
 }
 
 
