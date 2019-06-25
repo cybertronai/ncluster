@@ -108,6 +108,9 @@ def etchosts(_):
   for name, ip in sorted(instance_tuples):
     print(f"{ip} {name}")
 
+  print("""\n127.0.0.1    localhost
+255.255.255.255    broadcasthost
+::1             localhost""")
 
 def _user_keypair_check(instance):
   launching_user = instance.key_name[len(u.get_prefix()) + 1:]
