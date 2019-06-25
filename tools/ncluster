@@ -64,7 +64,7 @@ def ls(fragment=''):
   instances = u.lookup_instances(fragment)
   print('-' * 80)
   print(
-    f"{'name':15s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'public_ip':>15s} "
+    f"{'name':18s} {'hours_live':>10s} {'cost_in_$':>10s} {'instance_type':>15s} {'public_ip':>15s} "
     f"{'key/owner':>15s} {'private ip':>15s}")
   print('-' * 80)
   for instance in instances[::-1]:
@@ -78,7 +78,7 @@ def ls(fragment=''):
       cost = INSTANCE_INFO[instance_type]['cost'] * elapsed_hours
     else:
       cost = -1
-    print(f"{u.get_name(instance):15s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
+    print(f"{u.get_name(instance):18s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
           f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s} {instance.private_ip_address:>15s} ")
 
   # list spot requests, ignore active ones since they show up already
