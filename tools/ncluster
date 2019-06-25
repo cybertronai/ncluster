@@ -15,6 +15,7 @@ from ncluster import aws_util as u
 from ncluster import util
 from ncluster.aws_backend import INSTANCE_INFO
 from boto3_type_annotations.ec2 import Volume
+from boto3_type_annotations.ec2 import Image
 
 VERBOSE = False
 
@@ -475,15 +476,17 @@ def keys(_):
   print(key)
 
 
-def lookup_image_name(image_id: str):
-  """Looks up image name from image id like 'ami-0cc96feef8c6bbff3'"""
+def lookup_image(image_id: str) -> Image:
+  """Looks up image from image id like 'ami-0cc96feef8c6bbff3', prints image.name"""
+  # could use ec2.images.filter(ImageIds=['ami-0cc96feef8c6bbff3']
   assert image_id.startswith('ami-')
   ec2 = u.get_ec2_resource()
-  images = list(ec2.images.all())
+  images = list(ec2.images.filter(ImageIds=[image_id]))
   assert images, f"No images found with id={image_id}"
+  assert len(images) == 1, f"Multiple images found with id={image_id}: {','.join(i.name for i in images)}"
   image = [im for im in images if im.id == image_id][0]
   print(image.name)
-  return image.name
+  return image
 
 
 def grow_disks(fragment: str, target_size_gb=500):
@@ -528,7 +531,7 @@ COMMANDS = {
   'hosts': etchosts,
   'terminate_tmux': terminate_tmux,
   'cleanup_placement_groups': cleanup_placement_groups,
-  'lookup_image_name': lookup_image_name,
+  'lookup_image': lookup_image,
   'reboot': reboot,
   'launch': launch,
   'fix_default_security_group': fix_default_security_group,
