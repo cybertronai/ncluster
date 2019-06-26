@@ -62,8 +62,10 @@ for v in os.environ:
   if v.startswith('NCLUSTER'):
     assert v in env_settings, f"Custom setting '{v}'='{os.environ[v]}' not in settings whitelist, if you" \
       f"are sure you need this setting, add it to the env_settings in {os.path.basename(__file__)}, otherwise 'unset {v}'"
-    if v == 'NCLUSTER_AUTHORIZED_KEYS':
-      continue  # don't spam console since this is often set by default
+    # the following are often set by default, so don't print them
+    if v in {'NCLUSTER_AUTHORIZED_KEYS', 'NCLUSTER_ZONE'}:
+      continue
+
     sys.stderr.write(f"ncluster env setting {v}={os.environ[v]}\n")
 
 
