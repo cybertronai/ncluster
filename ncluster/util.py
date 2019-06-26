@@ -64,7 +64,7 @@ for v in os.environ:
       f"are sure you need this setting, add it to the env_settings in {os.path.basename(__file__)}, otherwise 'unset {v}'"
     if v == 'NCLUSTER_AUTHORIZED_KEYS':
       continue  # don't spam console since this is often set by default
-    print(f"ncluster env setting {v}={os.environ[v]}")
+    sys.stderr.write(f"ncluster env setting {v}={os.environ[v]}\n")
 
 
 def is_iterable(k):
