@@ -98,7 +98,7 @@ class Resyncd(object):
 
 class Sync(object):
   # todo: exclude .#sync.py
-  excludes = ('*.model', '*.cache', '.picklecache', '.git', '*.pyc', '*.gz', '.*', '#*')
+  excludes = ('*.model', '*.cache', '.picklecache', '*.pyc', '*.gz', '.*', '#*')
 
   def __init__(self, source, dest, modify_window=True, copy_links=False, excludes=()):
     self.source = os.path.expanduser(source)
