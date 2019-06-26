@@ -36,9 +36,9 @@ with newlines stripped"""
   return stripped_lines
 
 
-def _check_instance_found(instances, fragment):
+def _check_instance_found(instances, fragment, states=()):
   if not instances:
-    print(f"Couldn't find instances matching '{fragment}' for key {u.get_keypair_name()}")
+    print(f"Couldn't find instances in state {states} matching '{fragment}' for key {u.get_keypair_name()}")
     return False
   return True
 
@@ -209,7 +209,11 @@ def kill(fragment: str = '', stop_instead_of_kill: bool = False):
     stop_instead_of_kill: use stop_instances instead of terminate_instances
   """
 
-  instances = u.lookup_instances(fragment, valid_states=['running', 'stopped'], limit_to_current_user=False)
+  if stop_instead_of_kill:
+    valid_states = ['running']
+  else:
+    valid_states = ['running', 'stopped']
+  instances = u.lookup_instances(fragment, valid_states=valid_states, limit_to_current_user=False)
   instances_to_kill = []
   for i in instances:
     state = i.state['Name']
@@ -224,7 +228,7 @@ def kill(fragment: str = '', stop_instead_of_kill: bool = False):
     action = 'stopping'
   else:
     action = 'terminating'
-  if not _check_instance_found(instances_to_kill, fragment):
+  if not _check_instance_found(instances_to_kill, fragment, valid_states):
     return
 
   ec2_client = u.get_ec2_client()
