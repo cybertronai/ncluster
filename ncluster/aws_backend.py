@@ -971,7 +971,8 @@ def make_task(
     }]
 
     placement_specs = {}
-    if u.instance_supports_efa(instance_type):
+    # if we are launching into placement group and using EFA, must use zone-specific network setup
+    if ncluster_globals.is_enforced_placement_group() and u.instance_supports_efa(instance_type):
       u.assert_zone_specific_config()
 
       subnet = u.get_subnet()
