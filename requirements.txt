@@ -1,7 +1,8 @@
 botocore
 boto3>=1.9.159   # needed for InterfaceType in create_instances
 boto3_type_annotations # for dev use boto3_type_annotations_with_docs
-cryptography==2.4.2  # workaround for https://github.com/paramiko/paramiko/issues/1369
+# cryptography==2.4.2  # workaround for https://github.com/paramiko/paramiko/issues/1369
+cryptography
 paramiko
 portalocker
 portpicker
