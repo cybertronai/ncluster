@@ -23,7 +23,7 @@ EPOCH_MICROS = 1535753974788163
 env_settings = {
   'NCLUSTER_AUTHORIZED_KEYS',         # public keys used to authorize ssh access on all instances
   'NCLUSTER_AWS_FAST_ROOTDISK',       # request $1/hour high performance AWS disk
-  'NCLUSTER_AWS_PLACEMENT_GROUP',     # name of placement group to use, use when reusing part of job from previous launch
+  'NCLUSTER_AWS_PLACEMENT_GROUP',     # name of placement group to use, use when adding machines to a previous launched job
   'NCLUSTER_DISABLE_PDB_HANDLER',     # don't intercept pdb exception by default
   #  'NCLUSTER_IMAGE',
   'NCLUSTER_SSH_USERNAME',            # used as workaround when Amazon Linux detection fails
