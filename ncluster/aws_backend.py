@@ -273,9 +273,9 @@ class Task(backend.Task):
       del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
 #      if not util.is_set("NCLUSTER_NOKILL_TMUX") and not ncluster_globals.should_skip_setup():
-      if not ncluster_globals.should_skip_setup():
-          self._run_raw(f'tmux kill-session -t {self.tmux_session}',
-                        ignore_errors=True)
+    if not ncluster_globals.should_skip_setup():
+        self._run_raw(f'tmux kill-session -t {self.tmux_session}',
+                      ignore_errors=True)
     else:
       print(
         "Warning, NCLUSTER_NOKILL_TMUX or skip_setup is set, make sure remote tmux prompt is available or things will hang")
