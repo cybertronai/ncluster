@@ -80,7 +80,8 @@ def ls(fragment=''):
     else:
       cost = -1
     print(f"{u.get_name(instance):18s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
-          f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s} {instance.private_ip_address:>15s} ")
+          f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s} {instance.private_ip_address:>15s} "
+          f"{instance.placement_group.name} ")
 
   # list spot requests, ignore active ones since they show up already
   client = u.get_ec2_client()
@@ -193,9 +194,30 @@ def connect(fragment=''):
     print(f"Connecting to  {u.get_name(instance)} "
           f"launched by {instance.key_name}")
 
-  user_cmd = f"ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
+  user_cmd = f"ssh -t -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
              f"-o ServerAliveCountMax=1 " \
              f"-o ServerAliveInterval=60 " \
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
+  print(user_cmd)
+  os.system(user_cmd)
+
+
+def connect2(fragment=''):
+  """SSH into the instance using authorized keys mechanism."""
+  instances = u.lookup_instances(fragment)
+  if not _check_instance_found(instances, fragment):
+    return
+  instance = instances[0]
+  if len(instances) > 1:
+    print(f"Found {len(instances)} instances matching {fragment}, connecting to most recent  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+  else:
+    print(f"Connecting to  {u.get_name(instance)} "
+          f"launched by {instance.key_name}")
+
+  user_cmd = f"mosh --ssh='ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
+             f"-o ServerAliveCountMax=1 " \
+             f"-o ServerAliveInterval=60' " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address}"
   print(user_cmd)
   os.system(user_cmd)
@@ -512,11 +534,13 @@ def grow_disks(fragment: str, target_size_gb=500):
 
 def disks(fragment):
   """Print disk information for instance."""
-  instance = u.lookup_instance(fragment)
-  print(f"Disks on instance '{u.get_name(instance)}'")
-  for volume in instance.volumes.all():
-    device = volume.attachments[0]['Device']
-    print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
+  instances = u.lookup_instances(fragment, valid_states=('running', 'stopped'))
+  for instance in instances:
+    print()
+    print(f"Disks on instance '{u.get_name(instance)}'")
+    for volume in instance.volumes.all():
+      device = volume.attachments[0]['Device']
+      print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
 
 
 COMMANDS = {
@@ -544,6 +568,7 @@ COMMANDS = {
   'fix_default_security_group': fix_default_security_group,
   'keys': keys,
   'connect': connect,
+  'connect2': connect2,
   'grow_disks': grow_disks,
   'disks': disks,
 }
