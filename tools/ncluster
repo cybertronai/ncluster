@@ -546,6 +546,31 @@ def disks(fragment):
       print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
 
 
+def fixkeys():
+  key_name = u.get_keypair_name()
+  pairs = u.get_keypair_dict()
+  if key_name not in pairs:
+    print(f"Default keypair {key_name} does not exist, returning")
+    return
+  keypair = pairs[key_name]
+
+  print(f"Deleting current user keypair {key_name}")
+  ec2 = u.get_ec2_resource()
+  instance_list = []
+  for instance in ec2.instances.all():
+    if instance.key_name == key_name:
+      instance_list.append(instance)
+  if instance_list:
+    print("Warning, after deleting keypair, the following instances will be no longer accessible:")
+    for i in instance_list:
+      print(u.get_name(i), i.id)
+    answer = input("Proceed? (y/N)")
+  else:
+    answer = "y"
+  if answer.lower() == 'y':
+    keypair.delete()
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -574,6 +599,7 @@ COMMANDS = {
   'connectm': connectm,
   'grow_disks': grow_disks,
   'disks': disks,
+  'fixkeys': fixkeys,
 }
 
 
