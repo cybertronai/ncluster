@@ -559,6 +559,8 @@ def fixkeys(_):
   instance_list = []
   for instance in ec2.instances.all():
     if instance.key_name == key_name:
+      if instance.state == 'terminated':
+        continue
       instance_list.append(instance)
   if instance_list:
     print("Warning, after deleting keypair, the following instances will be no longer accessible:")
@@ -568,6 +570,9 @@ def fixkeys(_):
   else:
     answer = "y"
   if answer.lower() == 'y':
+    print("Deleting local .pem file")
+    os.system(f'sudo rm {u.get_keypair_fn()}')
+    print("Deleting AWS keypair")
     keypair.delete()
 
 
