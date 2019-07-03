@@ -446,7 +446,7 @@ def launch(args_str):
   parser.add_argument('--name', type=str, default='ncluster_launch', help="instance name")
   parser.add_argument('--image_name', type=str, default='Deep Learning AMI (Ubuntu) Version 23.0')
   # can also use --image_name='Deep Learning AMI (Amazon Linux) Version 23.0' # cybertronai01
-  parser.add_argument('--instance_type', type=str, default='p3.2xlarge', help="type of instance")
+  parser.add_argument('--instance_type', type=str, default='c5.large', help="type of instance")
   parser.add_argument('--disk_size', type=int, default=0, help="size of disk in GBs. If 0, use default size for the image")
   args = parser.parse_args(shlex.split(args_str))
 
@@ -564,7 +564,7 @@ def fixkeys(_):
     print("Warning, after deleting keypair, the following instances will be no longer accessible:")
     for i in instance_list:
       print(u.get_name(i), i.id)
-    answer = input("Proceed? (y/N)")
+    answer = input("Proceed? (y/N) ")
   else:
     answer = "y"
   if answer.lower() == 'y':
