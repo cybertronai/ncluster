@@ -198,12 +198,16 @@ def connect(fragment=''):
              f"-o ServerAliveCountMax=1 " \
              f"-o ServerAliveInterval=60 " \
              f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
+  if 'INSIDE_EMACS' in os.environ or 'NO_TMUX' in os.environ:
+    pass
+  else:
+    user_cmd += " tmux a"
   print(user_cmd)
   os.system(user_cmd)
 
 
-def connect2(fragment=''):
-  """SSH into the instance using authorized keys mechanism."""
+def connectm(fragment=''):
+  """Like connect, but uses mosh"""
   instances = u.lookup_instances(fragment)
   if not _check_instance_found(instances, fragment):
     return
@@ -568,7 +572,7 @@ COMMANDS = {
   'fix_default_security_group': fix_default_security_group,
   'keys': keys,
   'connect': connect,
-  'connect2': connect2,
+  'connectm': connectm,
   'grow_disks': grow_disks,
   'disks': disks,
 }
@@ -580,7 +584,6 @@ def main():
     mode = 'ls'
   else:
     mode = sys.argv[1]
-
   if mode == 'help':
     for k, v in COMMANDS.items():
       if v.__doc__:
