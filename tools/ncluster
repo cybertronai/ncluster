@@ -546,7 +546,7 @@ def disks(fragment):
       print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
 
 
-def fixkeys():
+def fixkeys(_):
   key_name = u.get_keypair_name()
   pairs = u.get_keypair_dict()
   if key_name not in pairs:
