@@ -1026,3 +1026,10 @@ def get_efs_mount_command():
   dns = f"{efs_id}.efs.{region}.amazonaws.com"
   cmd = f'sudo mkdir -p /ncluster && sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {dns}:/ /ncluster'
   return cmd
+
+
+def validate_local_keypair():
+  key_name = get_keypair_name()
+  keypair_fn = get_keypair_fn()
+  if key_name in get_keypair_dict():
+    assert os.path.exists(keypair_fn), f"Keypair '{key_name}' exists, but couldn't find corresponding .pem file under '{keypair_fn}'. Either get this file or delete it using 'ncluster fixkeys'"

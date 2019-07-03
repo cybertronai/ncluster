@@ -893,6 +893,7 @@ def make_task(
 
   if is_chief:
     util.setup_local_ssh_keys()
+    u.validate_local_keypair()
 
   # if name not specified, use name which is the same across script invocations for given image/instance-type
   name = ncluster_globals.auto_assign_task_name_if_needed(name, instance_type,
