@@ -238,6 +238,9 @@ def get_account_number() -> str:
       if 'AWS_SECRET_ACCESS_KEY' not in os.environ:
         util.log(
           'AWS_SECRET_ACCESS_KEY not in env vars, configure your AWS credentials."')
+      if 'AWS_ACCESS_KEY_ID' not in os.environ:
+        util.log(
+          'AWS_ACCESS_KEY_ID not in env vars, configure your AWS credentials."')
       time.sleep(RETRY_INTERVAL_SEC)
   public_key = os.environ.get('AWS_ACCESS_KEY_ID', None)
   if not success:

@@ -136,8 +136,7 @@ def ssh(fragment=''):
   _user_keypair_check(instance)
   user_cmd = f"ssh -t -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no -o ServerAliveCountMax=1 " \
              f"-o ServerAliveInterval=60 " \
-             f"{u.get_aws_username(instance)}@{instance.public_ip_address} " \
-             f"tmux attach"
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
   print(user_cmd)
   os.system(user_cmd)
 
