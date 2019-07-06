@@ -2,6 +2,7 @@
 
 import os
 import re
+import subprocess
 import sys
 import time
 from collections import OrderedDict
@@ -1033,3 +1034,25 @@ def validate_local_keypair():
   keypair_fn = get_keypair_fn()
   if key_name in get_keypair_dict():
     assert os.path.exists(keypair_fn), f"Keypair '{key_name}' exists, but couldn't find corresponding .pem file under '{keypair_fn}'. Either get this file or delete it using 'ncluster fixkeys'"
+
+
+def running_on_aws() -> bool:
+  """
+  Returns: True if running on AWS, False otherwise
+
+  """
+
+  # follow recipe from https://serverfault.com/a/575422/88745
+  cmd = 'wget -q http://instance-data.ec2.internal && echo yes || echo no'
+  p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+  (stdout, stderr) = p.communicate()
+  if stderr:
+    print(f"Warning, running_on_aws check got stderr '{stderr}'")
+    return stdout.decode('ascii')
+
+  if stdout == 'yes':
+    return True
+  if stdout == 'no':
+    return False
+  assert False, f"running_on_aws check got '{stdout}' which is neither 'yes' nor 'no'"
+
