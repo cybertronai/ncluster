@@ -1,5 +1,3 @@
-import os
-
 from . import aws_backend
 from . import aws_util
 from . import util
@@ -20,8 +18,12 @@ from .ncluster import get_zone
 from .ncluster import get_region
 from .ncluster import set_logdir_root
 from .ncluster import get_logdir_root
-from .ncluster import add_authorized_keys
+from .ncluster import add_authorized_keys  # is this still used?
+from .aws_util import running_on_aws
 
+from ._version import __version__
+
+print(f"ncluster version {__version__}")
 # set default backend from environment
 set_backend('aws')
 
