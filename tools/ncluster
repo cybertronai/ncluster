@@ -571,9 +571,11 @@ def fixkeys(_):
   else:
     answer = "y"
   if answer.lower() == 'y':
-    print("Deleting local .pem file")
-    os.system(f'sudo rm {u.get_keypair_fn()}')
-    print("Deleting AWS keypair")
+    keypair_fn = u.get_keypair_fn()
+    if os.path.exists(keypair_fn):
+      print(f"Deleting local .pem file '{keypair_fn}'")
+      os.system(f'sudo rm -f {keypair_fn}')
+    print(f"Deleting AWS keypair '{keypair.name}'")
     keypair.delete()
 
 
