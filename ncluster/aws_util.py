@@ -439,10 +439,10 @@ def lookup_instance_exact(name: str, instance_type: str = '', image_name: str = 
 
     seen_prefix, seen_username = parse_key_name(i.key_name)
     if prefix != seen_prefix:
-      print(f"Found {name} launched under {seen_prefix}, ignoring because current ncluster prefix is {prefix}")
+      print(f"Warning, found {name} launched under {seen_prefix}, ignoring because current ncluster prefix is {prefix}")
       continue
     if username != seen_username:
-      print(f"Found {name} launched by {seen_username}, ignoring because current user is {username}")
+      print(f"Warning, found {name} launched by {seen_username}, ignoring because current user is {username}")
       continue
 
     if instance_type:
@@ -556,6 +556,11 @@ def ssh_to_task(task) -> paramiko.SSHClient:
         hostname = task.public_ip
       break
     except Exception as e:
+      if 'Authentication failed' in str(e):
+        # check key fingerprint
+        print("Checking security key fingerprint")
+        ssh_key_fn
+
       print(
         f'{task.name}: Exception connecting to {hostname} via ssh (could be a timeout): {e}')
       time.sleep(RETRY_INTERVAL_SEC)
