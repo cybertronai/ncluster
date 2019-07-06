@@ -79,8 +79,9 @@ def ls(fragment=''):
       cost = INSTANCE_INFO[instance_type]['cost'] * elapsed_hours
     else:
       cost = -1
+    key_name = str(instance.key_name)  # could be None
     print(f"{u.get_name(instance):18s} {elapsed_sec / 3600:10.1f} {cost:10.0f} {instance_type[:5]:>15s} "
-          f"{instance.public_ip_address:>15s} {instance.key_name[9:]:>15s} {instance.private_ip_address:>15s} "
+          f"{instance.public_ip_address:>15s} {key_name[9:]:>15s} {instance.private_ip_address:>15s} "
           f"{instance.placement_group.name} ")
 
   # list spot requests, ignore active ones since they show up already
