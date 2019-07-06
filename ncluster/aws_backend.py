@@ -227,7 +227,7 @@ class Task(backend.Task):
                         'WANDB_API_KEY'    # optional logging, if defined locally also propagate to remote machine
                         ])
 
-    self.connect_instructions = f"""To connect to {self.name} do "ncluster ssh {self.name}" or
+    self.connect_instructions = f"""To connect to {self.name} do "ncluster connect {self.name}" or
     ssh {self.ssh_username}@{self.public_ip}
     tmux a
     """.strip()
