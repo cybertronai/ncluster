@@ -241,31 +241,41 @@ def kill(fragment: str = '', stop_instead_of_kill: bool = False):
     valid_states = ['running', 'stopped']
   instances = u.lookup_instances(fragment, valid_states=valid_states, limit_to_current_user=False)
   instances_to_kill = []
+  instances_to_skip = []
+  users_to_skip = set()
+  instances_to_kill_formatted = []
   for i in instances:
     state = i.state['Name']
 
     if not LIMIT_TO_CURRENT_USER or i.key_name == u.get_keypair_name():
-      print(u.get_name(i), i.instance_type, i.key_name, state if state == 'stopped' else '')
+      instances_to_kill_formatted.append(("  ", u.get_name(i), i.instance_type, i.key_name, state if state == 'stopped' else ''))
       instances_to_kill.append(i)
     else:
-      print(f"Skipping instance '{u.get_name(i)}' launched with key {i.key_name}, use reallykill/reallystop to override")
+      instances_to_skip.append(u.get_name(i))
+      users_to_skip.add(i.key_name[9:])
 
   if stop_instead_of_kill:
     action = 'stopping'
+    override_action = 'reallystop'
   else:
     action = 'terminating'
+    override_action = 'reallykill'
+
+  if instances_to_skip:
+    print(f"Skipping {','.join(instances_to_skip)} launched by ({', '.join(users_to_skip)}), override with {override_action}")
   if not _check_instance_found(instances_to_kill, fragment, valid_states):
     return
+
+  print(f"{action}:")
+  for line in instances_to_kill_formatted:
+    print(*line)
 
   ec2_client = u.get_ec2_client()
   # don't ask for confirmation when stopping, erronous stopping has milder consequences
   num_instances = len(instances_to_kill)
   #  if util.is_set("NCLUSTER_SKIP_CONFIRMATION") or stop_instead_of_kill:
   #  print("NCLUSTER_SKIP_CONFIRMATION is set or stop_instead_of_kill, skipping confirmation")
-  if stop_instead_of_kill:
-    answer = 'y'
-  else:
-    answer = input(f"{num_instances} instances found, {action} in {u.get_region()}? (y/N) ")
+  answer = input(f"{num_instances} instances found, {action} in {u.get_region()}? (y/N) ")
 
   if answer.lower() == "y":
     instance_ids = [i.id for i in instances_to_kill]
