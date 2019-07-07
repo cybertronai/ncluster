@@ -226,6 +226,7 @@ class Task(backend.Task):
     self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS',  # public keys that will work for passwordless SSH to machine
                         'WANDB_API_KEY'    # optional logging, if defined locally also propagate to remote machine
                         ])
+    self.run(f'export PYTHONUNBUFFERED=1')  # output tee piping turns on buffering in Python, turn it off
 
     self.connect_instructions = f"""To connect to {self.name} do "ncluster connect {self.name}" or
     ssh {self.ssh_username}@{self.public_ip}
