@@ -557,9 +557,8 @@ def ssh_to_task(task) -> paramiko.SSHClient:
       break
     except Exception as e:
       if 'Authentication failed' in str(e):
-        # check key fingerprint
-        print("Checking security key fingerprint")
-        ssh_key_fn
+        pass
+        # TODO(y): check fingerprint https://github.com/cybertronai/ncluster/issues/63
 
       print(
         f'{task.name}: Exception connecting to {hostname} via ssh (could be a timeout): {e}')
@@ -785,9 +784,13 @@ def call_with_retries(method, debug_string='',
                       **kwargs):
   start_time = time.time()
   value = None
+
+  def format_kwargs():
+    return ', '.join([f"{k}='{kwargs[k]}'" for k in kwargs])
+
   while True:
     if time.time() - start_time > retry_timeout_sec:
-      assert False, f"Timeout {retry_timeout_sec} exceeded calling {method.__name__}"
+      assert False, f"Timeout {retry_timeout_sec} exceeded calling {method.__name__}({format_kwargs()})"
     try:
       value = method(**kwargs)
       assert value is not None, f"{debug_string} was None"
