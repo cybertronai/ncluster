@@ -22,7 +22,7 @@ Necessary AWS infrastructure is created on demand using defaults that make sense
 
 
 ## Installation
-Install pip, tmux, Python 3.6 (see below), then
+Install pip, tmux, Python 3.6 (see below), and [write down](https://docs.google.com/document/d/1Z8lCZVWXs7XORbiNmBAsBDtouV3KwrtH8-UL5M-zHus/edit) your AWS security keys, then
 
 ```
 pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requirements.txt
