@@ -263,9 +263,9 @@ class Task(backend.Task):
     self.tmux_window_id = 0
     self.tmux_available_window_ids = [0]
 
-    # TODO(y): fix escape sequence
     tmux_cmd = [f'tmux set-option -g history-limit 50000 \\; ',
                 f'set-option -g mouse on \\; ',
+                f'bind-key -n C-d detach \\; ',   # CTRL+d detaches instead of killing shell
                 f'new-session -s {self.tmux_session} -n 0 -d']
 
     # hack to get around Amazon linux not having tmux
@@ -685,8 +685,16 @@ class Task(backend.Task):
     self.sftp.get(remote_fn, local_fn)
 
   def exists(self, remote_fn):
-    stdout, stderr = self._run_raw('stat ' + remote_fn, ignore_errors=True)
-    return 'No such file' not in stdout
+    if not self.sftp:
+      self.sftp = u.call_with_retries(self.ssh_client.open_sftp,
+                                      'self.ssh_client.open_sftp')
+    try:
+      self.sftp.stat(remote_fn)
+      return True
+    except IOError:
+      return False
+    #    stdout, stderr = self._run_raw('stat ' + remote_fn, ignore_errors=True)
+    #    return 'No such file' not in stdout
 
   def write(self, remote_fn, contents):
     tmp_fn = self.local_scratch + '/' + str(util.now_micros())
@@ -800,7 +808,7 @@ class Task(backend.Task):
         print(line_prefix, line.strip())
         sys.stdout.flush()
 
-    t = threading.Thread(target=stream_func)
+    t = threading.Thread(target=stream_func, name=f'Thread: tail {fn}')
     t.start()
 
     if sync:

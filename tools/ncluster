@@ -194,16 +194,27 @@ def connect(fragment=''):
     print(f"Connecting to  {u.get_name(instance)} "
           f"launched by {instance.key_name}")
 
-  user_cmd = f"ssh -t -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
-             f"-o ServerAliveCountMax=1 " \
-             f"-o ServerAliveInterval=60 " \
-             f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
-  if 'INSIDE_EMACS' in os.environ or 'NO_TMUX' in os.environ:
+  ssh_cmd = f"ssh -t -o StrictHostKeyChecking=no -o ConnectTimeout=10  " \
+            f"-o ServerAliveCountMax=1 " \
+            f"-o ServerAliveInterval=60 " \
+            f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
+  if 'INSIDE_EMACS' in os.environ:
+    print("detected Emacs, skipping tmux attach")
+  pass
+  if 'NO_TMUX' in os.environ:
+    print("detected NO_TMUX, skipping tmux attach")
     pass
+
   else:
-    user_cmd += " tmux a"
-  print(user_cmd)
-  os.system(user_cmd)
+    connect_cmd = ssh_cmd + " tmux a"
+  print(connect_cmd)
+  exit_code = os.system(connect_cmd)
+  if exit_code != 0:
+    print(f"Creating ssh tmux a returned {exit_code}, recreating tmux")
+    fix_cmd = ssh_cmd + " tmux new"
+    exit_code = os.system(fix_cmd)
+    if exit_code != 0:
+      print(f"command {fix_cmd} failed with code '{exit_code}'")
 
 
 def connectm(fragment=''):
