@@ -1,7 +1,25 @@
 # ncluster
 By Yaroslav Bulatov, Andrew Shaw, Ben Mann
-
 https://github.com/cybertronai/ncluster
+
+Ncluster provides Python API to do the following things:
+- Allocate AWS machine m
+- Upload file to m
+- Run command on m
+- Download file from m
+
+IE
+
+```
+import ncluster
+task = ncluster.make_task(instance_type='p2.xlarge')
+task.upload('myscript.py')
+task.run('python myscript.py > out')
+task.download('out')
+```
+
+Necessary AWS infrastructure is created on demand using defaults that make sense for research. IE, your machines are preconfigured for passwordless SSH, can talk to each other and have a persistent file system mounted under /ncluster.
+
 
 ## Installation
 Install pip, tmux, Python 3.6 (see below), then
@@ -12,16 +30,6 @@ pip install -U ncluster
 export AWS_ACCESS_KEY_ID=AKIAIBATdf343
 export AWS_SECRET_ACCESS_KEY=z7yKEP/RhO3Olk343aiP
 export AWS_DEFAULT_REGION=us-east-1
-```
-
-## Python API
-
-```
-import ncluster
-task = ncluster.make_task(instance_type='p2.xlarge')
-task.upload('myscript.py')
-task.run('python myscript.py > out')
-task.download('out')
 ```
 
 
