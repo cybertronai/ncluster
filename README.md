@@ -1,20 +1,14 @@
 # ncluster
 By Yaroslav Bulatov, Andrew Shaw, Ben Mann
-
 https://github.com/cybertronai/ncluster
 
-## Installation
-Install pip, tmux, Python 3.6 (see below), then
+Ncluster provides Python API to do the following things:
+- Allocate AWS machine
+- Upload file to machine
+- Run command on machine
+- Download file from machine
 
-```
-pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requirements.txt
-pip install -U ncluster
-export AWS_ACCESS_KEY_ID=AKIAIBATdf343
-export AWS_SECRET_ACCESS_KEY=z7yKEP/RhO3Olk343aiP
-export AWS_DEFAULT_REGION=us-east-1
-```
-
-## Python API
+IE
 
 ```
 import ncluster
@@ -22,6 +16,20 @@ task = ncluster.make_task(instance_type='p2.xlarge')
 task.upload('myscript.py')
 task.run('python myscript.py > out')
 task.download('out')
+```
+
+Necessary AWS infrastructure is created on demand using defaults that make sense for research. IE, your machines are preconfigured for passwordless SSH, can access each other over all interfaces, and have a persistent file system mounted under /ncluster.
+
+
+## Installation
+Install pip, tmux, Python 3.6 (see below), and [write down](https://docs.google.com/document/d/1Z8lCZVWXs7XORbiNmBAsBDtouV3KwrtH8-UL5M-zHus/edit) your AWS security keys, then
+
+```
+pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requirements.txt
+pip install -U ncluster
+export AWS_ACCESS_KEY_ID=AKIAIBATdf343
+export AWS_SECRET_ACCESS_KEY=z7yKEP/RhO3Olk343aiP
+export AWS_DEFAULT_REGION=us-east-1
 ```
 
 
