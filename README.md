@@ -3,10 +3,10 @@ By Yaroslav Bulatov, Andrew Shaw, Ben Mann
 https://github.com/cybertronai/ncluster
 
 Ncluster provides Python API to do the following things:
-- Allocate AWS machine m
-- Upload file to m
-- Run command on m
-- Download file from m
+- Allocate AWS machine
+- Upload file to machine
+- Run command on machine
+- Download file from machine
 
 IE
 
