@@ -82,8 +82,9 @@ class Task(backend.Task):
   sftp: Optional[paramiko.SFTPClient]
 
   # TODO(y): init should be lightweight to enable wrapping existing instances into tasks, refactor all setup to take place outside of init
+  # TODO(y): clean-up interface
   def __init__(self, name, *, instance: Instance, install_script='', image_name='',
-               **extra_kwargs):
+               instance_reuse=False, **extra_kwargs):
     """
    Initializes Task on top of existing AWS instance. Blocks until instance is ready to execute
    shell commands.
@@ -95,6 +96,7 @@ class Task(backend.Task):
       image_name: AWS image name
       **extra_kwargs: unused kwargs (kept for compatibility with other backends)
     """
+
     # self._cmd_fn = None
     self._cmd = None
     self._status_fn = None  # location of output of last status
@@ -108,6 +110,7 @@ class Task(backend.Task):
     self.instance = instance
     self.install_script = install_script
     self.extra_kwargs = extra_kwargs
+    self.instance_reuse = instance_reuse
 
     self.public_ip = u.get_public_ip(instance)
     self.ip = u.get_ip(instance)
@@ -941,8 +944,10 @@ def make_task(
 
   # create the instance if not present
   if instance:
+    instance_reuse = True
     log(f"Reusing {instance}")
   else:
+    instance_reuse = False
     log(f"Allocating {instance_type} for task {name}")
     args = {'ImageId': image.id,
             'InstanceType': instance_type,
@@ -1038,7 +1043,7 @@ def make_task(
   task = Task(name, instance=instance,
               install_script=install_script,
               image_name=image_name,
-              instance_type=instance_type)
+              instance_reuse=instance_reuse)
 
   ncluster_globals.register_task(task, run_name)
   return task
