@@ -8,8 +8,9 @@ run_object refers to Run object corresponding to that name
 import os
 import sys
 from typing import Dict, Any, List
-from . import util
+
 from . import backend
+from . import util
 
 LOGDIR_ROOT = None
 task_launched = False  # keep track whether anything has been launched
@@ -94,7 +95,20 @@ def register_task(task: Any, run_name: str):
   assert task.name not in tasks_seen
   tasks_seen.append(task.name)
   task_run_dict[task] = run_name
-  run_task_dict.setdefault(run_name, []).append(task)
+  run_task_list = run_task_dict.get(run_name, [])
+  run_task_list.append(task)
+
+  # disable check because it's useless (instance creation fails with missing placement group before getting to register_task)
+  # enforce uniformity -- either all tasks in a run are reused (assuming 1 job per run) or all tasks are created fresh
+  # has_reuse = sum(task.instance_reuse for task in run_task_list)
+  # has_fresh = sum(not task.instance_reuse for task in run_task_list)
+  # if has_reuse + has_fresh != 1:
+  #   tasks_to_kill = [task.name for task in run_task_list]
+  #   print(f"Fatal: trying to reuse some instances while recreating others. Launching a group requires launching all "
+  #         f"instances together. Kill following instances and try again: {','.join(tasks_to_kill)}")
+  #   for task in run_task_list:
+  #     print(f"{task.name}: {'reused' if task.instance_reuse else 'fresh'}")
+  #   os.kill(os.getpid(), signal.SIGTERM)  # sys.exit() doesn't work inside thread
 
 
 def register_run(run: backend.Run, run_name: str) -> None:
