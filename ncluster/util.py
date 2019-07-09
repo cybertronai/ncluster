@@ -273,11 +273,13 @@ def wait_for_file(fn: str, max_wait_sec: int = 60,
     """
     log("Waiting for file", fn)
     start_time = time.time()
+    try_count = 0
     while True:
       if time.time() - start_time > max_wait_sec:
         log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
         return False
       if not os.path.exists(fn):
+        # print(f'{try_count}: {fn} not found, sleeping {check_interval}')
         time.sleep(check_interval)
         continue
       else:
@@ -330,7 +332,7 @@ def get_public_key() -> str:
   return open(ID_RSA_PUB).read().strip()
 
 
-def ssh_exec_command(ssh: paramiko.SSHClient, command: str, bufsize=-1, timeout=None, get_pty=False, environment=None) -> Tuple[paramiko.ChannelFile, paramiko.ChannelFile, paramiko.ChannelFile, paramiko.Channel]:
+def exec_command(ssh: paramiko.SSHClient, command: str, bufsize=-1, timeout=None, get_pty=False, environment=None) -> Tuple[paramiko.ChannelFile, paramiko.ChannelFile, paramiko.ChannelFile, paramiko.Channel]:
     """Copy of paramiko's exec_command which also returns the channel."""
 
     transport: paramiko.Transport = ssh.get_transport()
@@ -345,3 +347,21 @@ def ssh_exec_command(ssh: paramiko.SSHClient, command: str, bufsize=-1, timeout=
     stdout: paramiko.ChannelFile = chan.makefile("r", bufsize)
     stderr: paramiko.ChannelFile = chan.makefile_stderr("r", bufsize)
     return stdin, stdout, stderr, chan
+
+
+class timeit:
+  """Decorator to measure length of time spent in the block in millis and log
+  it to TensorBoard."""
+
+  def __init__(self, tag=""):
+    self.tag = tag
+
+  def __enter__(self):
+    self.start = time.perf_counter()
+    return self
+
+  def __exit__(self, *args):
+    self.end = time.perf_counter()
+    interval_ms = 1000 * (self.end - self.start)
+    print(f'timeit({self.tag}): {interval_ms})')
+
