@@ -273,13 +273,11 @@ def wait_for_file(fn: str, max_wait_sec: int = 60,
     """
     log("Waiting for file", fn)
     start_time = time.time()
-    try_count = 0
     while True:
       if time.time() - start_time > max_wait_sec:
         log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
         return False
       if not os.path.exists(fn):
-        # print(f'{try_count}: {fn} not found, sleeping {check_interval}')
         time.sleep(check_interval)
         continue
       else:
@@ -365,3 +363,9 @@ class timeit:
     interval_ms = 1000 * (self.end - self.start)
     print(f'timeit({self.tag}): {interval_ms})')
 
+
+# no_op method/object that accept every signature
+class NoOp:
+  def __getattr__(self, *args):
+    def no_op(*_args, **_kwargs): pass
+    return no_op
