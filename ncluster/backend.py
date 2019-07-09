@@ -69,6 +69,7 @@ class Task:
     """Runs command on given task."""
     raise NotImplementedError()
 
+  # TODO: reuse regular run
   def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> \
           Tuple[str, str]:
     """
