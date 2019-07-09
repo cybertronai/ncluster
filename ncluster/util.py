@@ -10,9 +10,10 @@ import time
 from collections import Iterable
 import shlex
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import portalocker
+import paramiko
 
 # starting value for now_micros (Aug 31, 2018), using this to make various timestamped names shorter
 EPOCH_MICROS = 1535753974788163
@@ -327,3 +328,20 @@ def get_public_key() -> str:
     assert os.path.exists(ID_RSA_PUB)
 
   return open(ID_RSA_PUB).read().strip()
+
+
+def ssh_exec_command(ssh: paramiko.SSHClient, command: str, bufsize=-1, timeout=None, get_pty=False, environment=None) -> Tuple[paramiko.ChannelFile, paramiko.ChannelFile, paramiko.ChannelFile, paramiko.Channel]:
+    """Copy of paramiko's exec_command which also returns the channel."""
+
+    transport: paramiko.Transport = ssh.get_transport()
+    chan: paramiko.Channel = transport.open_session(timeout=timeout)
+    if get_pty:
+      chan.get_pty()
+    chan.settimeout(timeout)
+    if environment:
+      chan.update_environment(environment)
+    chan.exec_command(command)
+    stdin: paramiko.ChannelFile = chan.makefile("wb", bufsize)
+    stdout: paramiko.ChannelFile = chan.makefile("r", bufsize)
+    stderr: paramiko.ChannelFile = chan.makefile_stderr("r", bufsize)
+    return stdin, stdout, stderr, chan
