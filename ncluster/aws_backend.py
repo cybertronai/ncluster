@@ -238,6 +238,7 @@ class Task(backend.Task):
     self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS',  # public keys that will work for passwordless SSH to machine
                         'WANDB_API_KEY'    # optional logging, if defined locally also propagate to remote machine
                         ])
+    # TODO(y): this setting is only needed for streaming, maybe only enable it in that case
     self.run(f'export PYTHONUNBUFFERED=1')  # output tee piping turns on buffering in Python, turn it off
 
     self.connect_instructions = f"""To connect to {self.name} do "ncluster connect {self.name}" or
@@ -414,12 +415,13 @@ class Task(backend.Task):
     tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
     tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
     self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
-    if non_blocking:
-      return '0'
 
     tailer = util.NoOp()
     if stream_output:
       tailer = self.tail_file(self._out_fn, line_prefix='rr> ')
+
+    if non_blocking:
+      return
 
     elapsed_time = time.time() - start_time
     while not self.exists(self._status_fn) and elapsed_time < max_wait_sec:
@@ -769,7 +771,7 @@ class RemoteTailer:
         if not line:   # EOF
           break
 
-    self.t = threading.Thread(target=stream_func, name=f'RemoteTailer({fn})', daemon=True)
+    self.t = threading.Thread(target=stream_func, name=f'RemoteTailer({fn})')
     self.t.start()
 
   def close(self):
@@ -1027,7 +1029,7 @@ def make_task(
       # log("You can change availability zone using export NCLUSTER_ZONE=...")
       log("Terminating")
       os.kill(os.getpid(),
-              signal.SIGINT)  # sys.exit() doesn't work inside thread
+              signal.SIGTERM)  # sys.exit() doesn't work inside thread
 
     assert instances, f"ec2.create_instances returned {instances}"
     log(f"Allocated {len(instances)} instances")
