@@ -56,8 +56,18 @@ DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20190612-x86_64-gp2'
 
 
-def check_cmd(cmd):
-  assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
+# Uncomment when doing line profiling
+# def identity(x):
+#   return x
+#
+#
+# try:
+#   profile  # throws an exception when profile isn't defined
+# except NameError:
+#   profile = identity   # if it's not defined simply ignore the decorator.
+
+
+# def check_cmd(cmd):
 
 
 class Task(backend.Task):
@@ -85,9 +95,10 @@ class Task(backend.Task):
       image_name: AWS image name
       **extra_kwargs: unused kwargs (kept for compatibility with other backends)
     """
-    self._cmd_fn = None
+    # self._cmd_fn = None
     self._cmd = None
     self._status_fn = None  # location of output of last status
+    self._out_fn = None
     self.last_status = -1
 
     self._can_run = False  # indicates that things needed for .run were created
@@ -350,87 +361,92 @@ class Task(backend.Task):
       util.log(f"Instance has only {free_mb} MB of memory, skipping tmpfs mount")
 
   # TODO(y): make this kwarg only
-  def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
+  # TODO(y): document
+  def run(self, cmd, sudo=False,
+          non_blocking=False,
+          ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2,
-          show_output=True,
+          stream_output=False,
           sanitized=False):
 
     if sudo:
       cmd = f"sudo bash -c '{cmd}'"
 
-    # TODO(y): remove this, put in this filtering becase I thought it broke
-    # source activate, but now it seems it doesn't
-    if not util.is_bash_builtin(cmd) or True:
-      return self._run_with_output_on_failure(cmd, non_blocking=non_blocking,
-                                              ignore_errors=ignore_errors,
-                                              max_wait_sec=max_wait_sec,
-                                              sanitized=sanitized)
-    else:
-      self.log("Found bash built-in, using regular run")
-
     if not self._can_run:
       assert False, "Using .run before initialization finished"
 
-    # if '\n' in cmd:
-    #   cmds = cmd.split('\n')
-    #   self.log(
-    #     f"Running {len(cmds)} commands at once, returning status of last")
-    #   status = -1
-    #   for subcmd in cmds:
-    #     status = self.run(subcmd, sanitized=sanitized)
-    #     self.last_status = status
-    #   return status
-    #
-    # cmd = cmd.strip()
-    # if cmd.startswith('#'):  # ignore empty/commented out lines
-    #   return -1
-    #
-    # cmd_sanitized = cmd[:20]+'****' if sanitized else cmd
-    # self.run_counter += 1
-    # self.log("tmux> %s", cmd_sanitized)
-    #
-    # self._cmd = cmd
+    if '\n' in cmd:
+      assert "'" in cmd or '"' in cmd, f"Your command '{cmd}' has newline but no quotes, are you sure?"
+
+    cmd = cmd.strip()
+    if cmd.startswith('#'):  # ignore empty/commented out lines
+      return ''
+
+    cmd_sanitized = cmd[:20]+'****' if sanitized else cmd
+
+    self.run_counter += 1
+    self.log("tmux> %s", cmd_sanitized)
+
+    self._cmd = cmd
     # self._cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
-    # self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
-    #
-    # cmd = util.shell_strip_comment(cmd)
-    # check_cmd(cmd)
-    #
-    # # modify command to dump shell success status into file
+    self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
+    self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
+
+    cmd = util.shell_strip_comment(cmd)
+
+    # wrap in { } so that 'cmd1||cmd2 > ...' works
+    # https://www.gnu.org/software/bash/manual/html_node/Command-Grouping.html
+    cmd = '{ '+cmd+'; }'
+
+    # todo(y): is this check still needed?
+    assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
+
+    # This takes half a second and only useful for debugging
     # self.file_write(self._cmd_fn, cmd + '\n')
-    # modified_cmd = f'{cmd}; echo $? > {self._status_fn}'
-    # modified_cmd = shlex.quote(modified_cmd)
-    #
-    # tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
-    # tmux_cmd = f'tmux send-keys -t {tmux_window} {modified_cmd} Enter'
-    # self._run_raw(tmux_cmd, ignore_errors=ignore_errors, sanitized=sanitized)
-    # if non_blocking:
-    #   return 0
-    #
-    # self.tail_file(self._out_fn, line_prefix='rr> ')
-    #
-    # if not self.wait_for_file(self._status_fn, max_wait_sec=30):
-    #   self.log(f"Retrying waiting for {self._status_fn}")
-    # while not self.exists(self._status_fn):
-    #   self.log(f"Still waiting for {cmd_sanitized}")
-    #   self.wait_for_file(self._status_fn, max_wait_sec=30)
-    # contents = self.read(self._status_fn)
-    #
-    # # if empty wait a bit to allow for race condition
-    # if len(contents) == 0:
-    #   time.sleep(check_interval)
-    #   contents = self.read(self._status_fn)
-    # status = int(contents.strip())
-    # self.last_status = status
-    #
-    # if status != 0:
-    #   if not ignore_errors:
-    #     raise RuntimeError(f"Command {cmd_sanitized} returned status {status}")
-    #   else:
-    #     self.log(f"Warning: command {cmd_sanitized} returned status {status}")
-    #
-    # return status
+
+    # modify command to dump shell success status into file
+    # https://stackoverflow.com/a/692407/419116
+    modified_cmd = f'{cmd} > >(tee -a {self._out_fn}) 2> >(tee -a {self._out_fn} >&2); echo $? > {self._status_fn}'
+    modified_cmd = shlex.quote(modified_cmd)
+
+    start_time = time.time()
+    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
+    tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
+    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
+    if non_blocking:
+      return '0'
+
+    tailer = util.NoOp()
+    if stream_output:
+      tailer = self.tail_file(self._out_fn, line_prefix='rr> ')
+
+    elapsed_time = time.time() - start_time
+    while not self.exists(self._status_fn) and elapsed_time < max_wait_sec:
+      self.log(f"Still waiting for {cmd_sanitized}")
+      self.wait_for_file(self._status_fn, max_wait_sec=60)
+      elapsed_time = time.time() - start_time
+
+    tailer.close()
+
+    contents = self.read(self._status_fn)  # 0.5 sec
+
+    # if empty wait a bit to allow for race condition
+    if len(contents) == 0:
+      time.sleep(check_interval)
+      contents = self.read(self._status_fn)
+    status = int(contents.strip())
+    self.last_status = status
+
+    if status != 0:
+      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
+      self.log(
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
+      self.log(f"\n{'*'*80}\nEnd failing output")
+      if not ignore_errors:
+        raise RuntimeError(f"Command {cmd} returned status {status}")
+      else:
+        self.log(f"Warning: command {cmd} returned status {status}")
 
   def propagate_env(self, env_vars: List[str]):
     """Propagates values of env_vars from client environment to the worker machine. IE
@@ -480,86 +496,17 @@ class Task(backend.Task):
                                   sanitized=False) -> str:
     """Experimental version of run propagates error messages to client. This command will be default "run" eventually"""
 
-    if not self._can_run:
-      assert False, "Using .run before initialization finished"
-
-    if '\n' in cmd:
-      assert "'" in cmd or '"' in cmd, f"Your command '{cmd}' has newline but no quotes, are you sure?"
-
-    cmd = cmd.strip()
-    if cmd.startswith('#'):  # ignore empty/commented out lines
-      return ''
-
-    cmd_sanitized = cmd[:20]+'****' if sanitized else cmd
-
-    self.run_counter += 1
-    self.log("tmux> %s", cmd_sanitized)
-
-    self._cmd = cmd
-    self._cmd_fn = f'{self.remote_scratch}/{self.run_counter}.cmd'
-    self._status_fn = f'{self.remote_scratch}/{self.run_counter}.status'
-    self._out_fn = f'{self.remote_scratch}/{self.run_counter}.out'
-
-    cmd = util.shell_strip_comment(cmd)
-    # https://www.gnu.org/software/bash/manual/html_node/Command-Grouping.html
-    cmd = '{ '+cmd+'; }'  # wrap in { } so that 'cmd1||cmd2 > ...' works
-
-    check_cmd(cmd)
-    # modify command to dump shell success status into file
-    self.file_write(self._cmd_fn, cmd + '\n')
-
-    #    modified_cmd = f'{cmd} > {out_fn} 2>&1; echo $? > {status_fn}'
-    # https://stackoverflow.com/a/692407/419116
-    # $cmd > >(tee -a fn) 2> >(tee -a fn >&2)
-
-    modified_cmd = f'{cmd} > >(tee -a {self._out_fn}) 2> >(tee -a {self._out_fn} >&2); echo $? > {self._status_fn}'
-    modified_cmd = shlex.quote(modified_cmd)
-
-    start_time = time.time()
-    tmux_window = self.tmux_session + ':' + str(self.tmux_window_id)
-    tmux_cmd = f"tmux send-keys -t {tmux_window} {modified_cmd} Enter"
-    self._run_raw(tmux_cmd, ignore_errors=ignore_errors)
-    if non_blocking:
-      return '0'
-
-    self.tail_file(self._out_fn, line_prefix='rr> ')
-
-    if not self.wait_for_file(self._status_fn, max_wait_sec=60):
-      self.log(f"Retrying waiting for {self._status_fn}")
-    elapsed_time = time.time() - start_time
-    while not self.exists(self._status_fn) and elapsed_time < max_wait_sec:
-      self.log(f"Still waiting for {cmd_sanitized}")
-      self.wait_for_file(self._status_fn, max_wait_sec=60)
-      elapsed_time = time.time() - start_time
-    contents = self.read(self._status_fn)
-
-    # if empty wait a bit to allow for race condition
-    if len(contents) == 0:
-      time.sleep(check_interval)
-      contents = self.read(self._status_fn)
-    status = int(contents.strip())
-    self.last_status = status
-
-    if status != 0:
-      extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
-      self.log(
-        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
-      self.log(f"\n{'*'*80}\nEnd failing output")
-      if not ignore_errors:
-        raise RuntimeError(f"Command {cmd} returned status {status}")
-      else:
-        self.log(f"Warning: command {cmd} returned status {status}")
-
-    return self.read(self._out_fn)
+    pass
 
   def _run_raw(self, cmd: str, ignore_errors=False, sanitized=False) -> Tuple[str, str]:
     """Runs given cmd in the task using current SSH session, returns
     stdout/stderr as strings. Because it blocks until cmd is done, use it for
-    short cmds. Silently ignores failing commands.
+    short cmds.
 
     This is a barebones method to be used during initialization that have
     minimal dependencies (no tmux)
     """
+
     stdin, stdout, stderr = u.call_with_retries(self.ssh_client.exec_command,
                                                 command=cmd, get_pty=True)
     stdout_str = stdout.read().decode()
@@ -671,16 +618,11 @@ class Task(backend.Task):
       maybe_fix_mode(local_fn, remote_fn)
 
   def download(self, remote_fn, local_fn=''):
-    # self.log("downloading %s" % remote_fn)
-    # sometimes open_sftp fails with Administratively prohibited, do retries
-    # root cause could be too many SSH connections being open
-    # https://unix.stackexchange.com/questions/14160/ssh-tunneling-error-channel-1-open-failed-administratively-prohibited-open
     if not self.sftp:
       self.sftp = u.call_with_retries(self.ssh_client.open_sftp,
                                       'self.ssh_client.open_sftp')
     if not local_fn:
       local_fn = os.path.basename(remote_fn)
-      # self.log("downloading %s to %s" % (remote_fn, local_fn))
     remote_fn = remote_fn.replace('~', self.homedir)
     self.sftp.get(remote_fn, local_fn)
 
@@ -796,7 +738,6 @@ class Task(backend.Task):
   def file_read(self, remote_fn):
     return self.read(remote_fn)
 
-  def tail_file(self, fn: str, sync: bool = False, line_prefix='') -> None:
   def tail_file(self, fn: str, line_prefix='') -> "RemoteTailer":
     """Streams fn on task machine to client's console."""
 
@@ -804,7 +745,8 @@ class Task(backend.Task):
 
 
 class RemoteTailer:
-  """Helper object that can stream remote file locally asynchronously."""
+  """Helper object to stream remote file to local machine asynchronously."""
+
   task: Task
   channel: paramiko.Channel
   t: threading.Thread
@@ -813,6 +755,7 @@ class RemoteTailer:
     self.task = task
     self.task._run_raw('mkdir -p ' + os.path.dirname(fn))
     self.task._run_raw('touch ' + fn)
+
     # _stdin, stdout, _stderr = self.ssh_client.exec_command(f'tail -f {fn}')
     _stdin, stdout, _stderr, channel = util.exec_command(task.ssh_client, f'tail -f {fn}')
     self.channel = channel
@@ -824,12 +767,12 @@ class RemoteTailer:
         if not line:   # EOF
           break
 
-    self.t = threading.Thread(target=stream_func, name=f'Thread: tail {fn}', daemon=True)
+    self.t = threading.Thread(target=stream_func, name=f'RemoteTailer({fn})', daemon=True)
     self.t.start()
 
   def close(self):
-    self.task._run_raw('killall tail')   # hack to get around paramiko hoarding closed channels https://github.com/paramiko/paramiko/issues/1475
-    self.channel.close()    # this close is insufficient, still get Channels accumulating somewhere
+    self.channel.close()
+    self.task._run_raw('killall tail')   # hack https://github.com/paramiko/paramiko/issues/1475
     self.t.join(timeout=10)
 
 
