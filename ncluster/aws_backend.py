@@ -332,22 +332,22 @@ class Task(backend.Task):
     util.log(f"Mounting tmpfs")
 
     line = ''   # silence the linters
-    stdout, stderr = self.run_with_output('free -t -g')
+    stdout, stderr = self.run_with_output('free -t -m')
     for line in stdout.split('\n'):
       if line.startswith('Mem'):
         break
 
     try:
-      free_gb = int(line.split()[3])
+      free_mb = int(line.split()[3])
     except Exception:
       assert False, "can't parse output of free: {stdout}"
 
-    util.log(f"Instance has {free_gb} GB of free memory")
-    if free_gb > 10:
-      self.run("sudo mkdir -p /tmpfs && sudo chown `whoami` /tmpfs && sudo mount -t tmpfs -o size=1g tmpfs /tmpfs")
+    util.log(f"Instance has {free_mb} MB of free memory")
+    if free_mb > 200:
+      self.run("sudo mkdir -p /tmpfs && sudo chown `whoami` /tmpfs && sudo mount -t tmpfs -o size=100m tmpfs /tmpfs")
       util.log('tmpfs mounted at /tmpfs')
     else:
-      util.log(f"Instance has only {free_gb} GB of memory, skipping tmpfs mount")
+      util.log(f"Instance has only {free_mb} MB of memory, skipping tmpfs mount")
 
   # TODO(y): make this kwarg only
   def run(self, cmd, sudo=False, non_blocking=False, ignore_errors=False,
