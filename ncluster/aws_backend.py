@@ -797,22 +797,40 @@ class Task(backend.Task):
     return self.read(remote_fn)
 
   def tail_file(self, fn: str, sync: bool = False, line_prefix='') -> None:
+  def tail_file(self, fn: str, line_prefix='') -> "RemoteTailer":
     """Streams fn on task machine to client's console."""
 
-    self._run_raw('mkdir -p ' + os.path.dirname(fn))
-    self._run_raw('touch ' + fn)
-    _stdin, stdout, _stderr = self.ssh_client.exec_command(f'tail -f {fn}')
+    return RemoteTailer(self, fn, line_prefix)
+
+
+class RemoteTailer:
+  """Helper object that can stream remote file locally asynchronously."""
+  task: Task
+  channel: paramiko.Channel
+  t: threading.Thread
+
+  def __init__(self, task: Task, fn: str, line_prefix: str = ''):
+    self.task = task
+    self.task._run_raw('mkdir -p ' + os.path.dirname(fn))
+    self.task._run_raw('touch ' + fn)
+    # _stdin, stdout, _stderr = self.ssh_client.exec_command(f'tail -f {fn}')
+    _stdin, stdout, _stderr, channel = util.exec_command(task.ssh_client, f'tail -f {fn}')
+    self.channel = channel
 
     def stream_func():
       for line in iter(lambda: stdout.readline(2048), b''):
         print(line_prefix, line.strip())
         sys.stdout.flush()
+        if not line:   # EOF
+          break
 
-    t = threading.Thread(target=stream_func, name=f'Thread: tail {fn}')
-    t.start()
+    self.t = threading.Thread(target=stream_func, name=f'Thread: tail {fn}', daemon=True)
+    self.t.start()
 
-    if sync:
-      t.join()
+  def close(self):
+    self.task._run_raw('killall tail')   # hack to get around paramiko hoarding closed channels https://github.com/paramiko/paramiko/issues/1475
+    self.channel.close()    # this close is insufficient, still get Channels accumulating somewhere
+    self.t.join(timeout=10)
 
 
 class Job(backend.Job):
