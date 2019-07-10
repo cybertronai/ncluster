@@ -18,7 +18,7 @@ task.run('python myscript.py > out')
 task.download('out')
 ```
 
-Necessary AWS infrastructure is created on demand using defaults that make sense for research. IE, your machines are preconfigured for passwordless SSH, can access each other over all interfaces, and have a persistent file system mounted under /ncluster.
+Necessary AWS infrastructure is created on demand using defaults optimal for fast prototyping. IE, your machines are preconfigured for passwordless SSH, can access each other over all interfaces, and have a persistent file system mounted under /ncluster.
 
 
 ## Installation
