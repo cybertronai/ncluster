@@ -60,13 +60,13 @@ ncluster cmd "some command to run remotely on AWS"
 
 ncluster efs   # gives EFS info such as the mount command
 
-nsync -n gpubox
-nsync -n gpubox -t transformer-xl
+nsync -m gpubox
+nsync -m gpubox -d transformer-xl
 
-nsync -t {target directory} -n {substring}
+nsync -d {target directory} -m {machine name substring}
 
-nsync -n gpubox # syncs . to ~ on gpubox
-nsync -t transformer-xl -n 4gpubox  # syncs . to ~/transformer-xl on 4gpubox
+nsync -m gpubox # syncs . to ~ on gpubox
+nsync -d transformer-xl -m 4gpubox  # syncs . to ~/transformer-xl on 4gpubox
 
 
 {substring} selects the most recently launched instances whose name contains the substring. Empty string is a valid substring. Skipping -t will sync to ~ on remote machine. Sync seems to be 1 way (from local -> remote)
