@@ -368,6 +368,7 @@ def print_efs_mount_command():
 
 
 def efs(_):
+  print("EFS information. To upload to remote EFS use 'ncluster efs_sync'")
   print_efs_mount_command()
   print()
   print()
@@ -466,6 +467,7 @@ def launch(args_str):
   import argparse
   parser = argparse.ArgumentParser()
   parser.add_argument('--name', type=str, default='ncluster_launch', help="instance name")
+  # parser.add_argument('--image_name', type=str, default='')  # default small image
   parser.add_argument('--image_name', type=str, default='Deep Learning AMI (Ubuntu) Version 23.0')
   # can also use --image_name='Deep Learning AMI (Amazon Linux) Version 23.0' # cybertronai01
   parser.add_argument('--instance_type', type=str, default='c5.large', help="type of instance")
@@ -600,6 +602,29 @@ def fixkeys(_):
     keypair.delete()
 
 
+def efs_sync(_):
+  """Starts a daemon to sync local /ncluster/sync with remote ncluster sync."""
+
+  print("Syncing local /ncluster/sync to remote /ncluster/sync")
+  if not os.path.exists('/ncluster/sync'):
+    print("Local /ncluster/sync doesn't exist, creating")
+    if not os.path.exists('/ncluster'):
+      os.system('sudo mkdir /ncluster')
+      os.system('chown `whoami` /ncluster')
+    os.system('mkdir /ncluster/sync')
+
+  instances = u.lookup_instances(limit_to_current_user=True)
+  if instances:
+    instance = instances[0]
+    print(f"Found {len(instances)} instances owned by {u.get_username()}, using {u.get_name(instance)} for syncing")
+  else:
+    print(f"Found no instances by {u.get_username()}, Launching t2.nano instance to do the sync.")
+    task = ncluster.make_task(name='shell', instance_type='t2.nano')
+    instance = task.instance
+
+  os.system(f'cd /ncluster/sync && nsync -m {u.get_name(instance)} -d /ncluster/sync')
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -629,6 +654,7 @@ COMMANDS = {
   'grow_disks': grow_disks,
   'disks': disks,
   'fixkeys': fixkeys,
+  'efs_sync': efs_sync,
 }
 
 
