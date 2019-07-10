@@ -311,7 +311,7 @@ class Task(backend.Task):
     region = u.get_region()
     efs_id = u.get_efs_dict()[u.get_prefix()]
     dns = f"{efs_id}.efs.{region}.amazonaws.com"
-    self.run('sudo mkdir -p /ncluster')
+    self.run('sudo mkdir -p /ncluster && sudo chown `whoami` /ncluster')
 
     stdout, stderr = self.run_with_output('df')
     if '/ncluster' not in stdout:
@@ -875,7 +875,7 @@ def make_task(
     run_name: see ncluster.make_task
     install_script: see ncluster.make_task
     instance_type: instance type to use, defaults to $NCLUSTER_INSTANCE or t3.micro if unset
-    image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to $NCLUSTER_IMAGE or amzn2-ami-hvm-2.0.20180622.1-x86_64-gp2 if unset
+    image_name: name of image, ie, "Deep Learning AMI (Ubuntu) Version 12.0", defaults to generic small AWS image if unset
     logging_task: partially initialized Task object, use it for logging
     is_chief: if True, this is the task is charge of taking care of common configuration that only needs to be done once per run, such generating security key
 

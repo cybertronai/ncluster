@@ -1063,4 +1063,3 @@ def running_on_aws() -> bool:
   if stdout == 'no':
     return False
   assert False, f"running_on_aws check got '{stdout}' which is neither 'yes' nor 'no'"
-
