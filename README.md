@@ -18,7 +18,7 @@ task.run('python myscript.py > out')
 task.download('out')
 ```
 
-Necessary AWS infrastructure is created on demand using defaults optimal for fast prototyping. IE, your machines are preconfigured for passwordless SSH, can access each other over all interfaces, and have a persistent file system mounted under /ncluster. Commands are executed in a tmux session so you can take over the environment at any time and continue from your terminal.  
+Necessary AWS infrastructure is created on demand using defaults optimal for fast prototyping. IE, your machines are preconfigured for passwordless SSH, can access each other over all interfaces, and have a persistent file system mounted under /ncluster. Commands are executed in a remote tmux session so you can take over the environment at any time and continue from your terminal.  
 
 
 ## Installation
