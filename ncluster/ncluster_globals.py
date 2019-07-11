@@ -1,5 +1,5 @@
 """Module that keeps global state of ncluster tasks, such as naming,
-connection of tasks to runs
+connection of tasks to runs.
 
 run refers to string name
 run_object refers to Run object corresponding to that name
@@ -9,10 +9,9 @@ import os
 import sys
 from typing import Dict, Any, List
 
-from . import backend
+from . import aws_backend as backend
 from . import util
 
-LOGDIR_ROOT = None
 task_launched = False  # keep track whether anything has been launched
 
 task_counter = 0
@@ -20,11 +19,11 @@ job_counter = 0
 run_counter = 0
 
 run_dict: Dict[str, Any] = {}
-task_run_dict: Dict[backend.Task, str] = {}
-run_task_dict: Dict[str, List[backend.Task]] = {}
+task_run_dict: Dict["backend.Task", str] = {}
+run_task_dict: Dict[str, List["backend.Task"]] = {}
 run_logdir_dict: Dict[str, str] = {}
 
-tasks_seen: List[backend.Task] = []  # list of all tasks created
+tasks_seen: List["backend.Task"] = []  # list of all tasks created
 
 enforce_placement_group_val = False
 
@@ -79,17 +78,6 @@ def auto_assign_run_name_if_needed(name):
   return name
 
 
-# def add_job_to_run(job, run_name):
-#   global run_dict, job_run_dict
-#   return job_run_dict.get(job, '')
-#
-
-# def register_run(name: str, run):
-#   global run_dict, placement_dict
-#   run_dict[name] = run
-#
-
-
 def register_task(task: Any, run_name: str):
   global task_run_dict, run_task_dict, tasks_seen
   assert task.name not in tasks_seen
@@ -111,14 +99,14 @@ def register_task(task: Any, run_name: str):
   #   os.kill(os.getpid(), signal.SIGTERM)  # sys.exit() doesn't work inside thread
 
 
-def register_run(run: backend.Run, run_name: str) -> None:
+def register_run(run: "backend.Run", run_name: str) -> None:
   print(f"Registering run {run_name}")
   assert run_name not in run_dict
   assert run_name  # empty name reserved to mean no run
   run_dict[run_name] = run
 
 
-def is_chief(task: backend.Task, run_name: str):
+def is_chief(task: "backend.Task", run_name: str):
   """Returns True if task is chief task in the corresponding run"""
   global run_task_dict
   if run_name not in run_task_dict:
@@ -148,16 +136,16 @@ def set_logdir(run_name, logdir):
   run_logdir_dict[run_name] = logdir
 
 
-def get_run_for_task(task: backend.Task) -> str:
+def get_run_for_task(task: "backend.Task") -> str:
   """Gets run name associated with given Task"""
   return task_run_dict.get(task, '')
 
 
-def get_run_object(run_name: str) -> backend.Run:
+def get_run_object(run_name: str) -> "backend.Run":
   return run_dict.get(run_name, None)
 
 
-def create_run_if_needed(run_name, run_creation_callback) -> backend.Run:
+def create_run_if_needed(run_name, run_creation_callback) -> "backend.Run":
   if run_name in run_dict:
     return run_dict[run_name]
   run = run_creation_callback(run_name)

@@ -370,7 +370,7 @@ def get_username() -> str:
   return os.environ['USER']
 
 
-def lookup_image(wildcard) -> Image:
+def lookup_image(wildcard: str) -> Image:
   """Returns unique ec2.Image whose name matches wildcard
   lookup_ami('pytorch*').name => ami-29fa
   
@@ -1037,7 +1037,8 @@ def get_efs_mount_command():
   return cmd
 
 
-def validate_local_keypair():
+def validate_local_keypair() -> None:
+  """Check that .pem file corresponding to default keypair is present."""
   key_name = get_keypair_name()
   keypair_fn = get_keypair_fn()
   if key_name in get_keypair_dict():

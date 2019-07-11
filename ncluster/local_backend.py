@@ -1,4 +1,4 @@
-"""Local implementation of backend.py using separate tmux sessions for jobs.
+"""EXPERIMENTAL local backend which mirrors aws_backend API. Useful for debugging
 
 Not thread-safe.
 """
@@ -8,16 +8,14 @@ import os
 import shlex
 import socket
 import time
-from typing import List
+from typing import List, Tuple
 
 from ncluster import ncluster_globals
-from . import backend
 from . import util
 
 TASKDIR_ROOT = '/tmp/ncluster/task'
 SCRATCH_ROOT = '/tmp/ncluster/scratch'
-#LOGDIR_ROOT = os.environ['HOME'] + '/ncluster/runs'  # use ~ instead of /tmp because /tmp gets wiped
-DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
+# DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 
 
 # todo: tmux session names are backwards from AWS job names (runname-jobname)
@@ -25,7 +23,7 @@ DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
 
 
 # TODO: rename extra_kwargs to kwargs everywhere
-class Task(backend.Task):
+class Task:
   """Local tasks interact with tmux session where session name is derived
   from job name, and window names are task ids."""
   tmux_window_id: int
@@ -34,6 +32,7 @@ class Task(backend.Task):
   def __init__(self, name, *, tmux_session, install_script='', job=None,
                **kwargs):
 
+    self.last_status = None
     self.homedir = os.environ['HOME']
     self._cmd_fn = None
     self._cmd = None
@@ -316,7 +315,8 @@ class Task(backend.Task):
     else:
       raise RuntimeError(f"No such file {remote_fn}")
 
-  def exists(self, remote_fn):
+  @staticmethod
+  def exists(remote_fn):
     return os.path.exists(remote_fn)
 
   def read(self, remote_fn):
@@ -396,60 +396,76 @@ class Task(backend.Task):
     ncluster_globals.set_logdir(run_name, logdir)
     return logdir
 
+  def log(self, message, *args):
+    """Log to launcher console."""
+    if args:
+      message %= args
 
-class Job(backend.Job):
-  pass
+    print(f"{util.current_timestamp()} {self.name}: {message}")
 
+  def wait_for_file(self, fn: str, max_wait_sec: int = 3600 * 24 * 365,
+                    check_interval: float = 0.02) -> bool:
+    """
+    Waits for file maximum of max_wait_sec. Returns True if file was detected within specified max_wait_sec
+    Args:
+      fn: filename on task machine
+      max_wait_sec: how long to wait in seconds
+      check_interval: how often to check in seconds
+    Returns:
+      False if waiting was was cut short by max_wait_sec limit, True otherwise
+    """
+    #    print("Waiting for file", fn)
+    start_time = time.time()
+    while True:
+      if time.time() - start_time > max_wait_sec:
+        util.log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
+        return False
+      if not self.exists(fn):
+        time.sleep(check_interval)
+        continue
+      else:
+        break
+    return True
 
-class Run:
-  """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
-  server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
-  event files.
-  :ivar aws_placement_group_name: somedoc
-  """
-  jobs: List[Job]
+  # TODO: reuse regular run
+  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> \
+          Tuple[str, str]:
+    """
 
-  def __init__(self, name='', **kwargs):
-    """Creates a run. If install_script is specified, it's used as default
-    install_script for all jobs (can be overridden by Job constructor)"""
+    Args:
+      cmd: single line shell command to run
+      non_blocking (bool): if True, does not wait for command to finish
+      ignore_errors: if True, will succeed even if command failed
 
-    self.name = name
-    self.kwargs = kwargs
+    Returns:
+      Contents of stdout/stderr as strings.
+    Raises
+      RuntimeException: if command produced non-0 returncode
 
-  @property
-  def logdir(self):
-    chief_task = ncluster_globals.get_chief(self.name)
-    return chief_task.logdir
+    """
 
-  # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
-  def run(self, *args, **kwargs):
-    """Runs command on every job in the run."""
+    assert '\n' not in cmd, "Do not support multi-line commands"
+    cmd: str = cmd.strip()
+    if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
+      return '', ''
 
-    for job in self.jobs:
-      job.run(*args, **kwargs)
+    stdout_fn = f"{self.remote_scratch}/{self.run_counter+1}.stdout"
+    stderr_fn = f"{self.remote_scratch}/{self.run_counter+1}.stderr"
+    cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
 
-  def run_with_output(self, *args, **kwargs):
-    """Runs command on every first job in the run, returns stdout."""
-    for job in self.jobs:
-      job.run_with_output(*args, **kwargs)
+    assert not non_blocking, "Getting output doesn't work with non_blocking"
+    status = self.run(cmd2, False, ignore_errors=True)
+    stdout = self.read(stdout_fn)
+    stderr = self.read(stderr_fn)
 
-  def _run_raw(self, *args, **kwargs):
-    """_run_raw on every job in the run."""
-    for job in self.jobs:
-      job._run_raw(*args, **kwargs)
+    if self.last_status > 0:
+      self.log(f"Warning: command '{cmd}' returned {status},"
+               f" stdout was '{stdout}' stderr was '{stderr}'")
+      if not ignore_errors:
+        raise RuntimeError(f"Warning: command '{cmd}' returned {status},"
+                           f" stdout was '{stdout}' stderr was '{stderr}'")
 
-  def upload(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-    for job in self.jobs:
-      job.upload(*args, **kwargs)
-
-  def rsync(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-    for job in self.jobs:
-      job.rsync(*args, **kwargs)
-
-  def make_job(self, name='', **kwargs):
-    return make_job(name+'.'+self.name, run_name=self.name, **kwargs)
+    return stdout, stderr
 
 
 def make_task(name='',
@@ -475,28 +491,3 @@ def make_task(name='',
               **kwargs)
   ncluster_globals.register_task(task, run_name)
   return task
-
-
-def make_job(name="",
-             num_tasks=1,
-             run_name="",
-             install_script='',
-             **kwargs
-             ) -> backend.Job:
-  assert num_tasks > 0, f"Can't create job with {num_tasks} tasks"
-
-  name = ncluster_globals.auto_assign_job_name_if_needed(name)
-  util.validate_ncluster_job_name(name)
-  tasks = [make_task(f"{i}.{name}",
-                     run_name=run_name,
-                     install_script=install_script,
-                     **kwargs
-                     ) for i in range(num_tasks)]
-
-  job = backend.Job(name=name, tasks=tasks, **kwargs)
-  return job
-
-
-def make_run(name) -> Run:
-  run = Run(name)
-  return run

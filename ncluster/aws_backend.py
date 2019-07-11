@@ -13,6 +13,8 @@ import threading
 import time
 from typing import Tuple, List, Optional
 
+import getpass
+
 import paramiko
 import portalocker
 from boto3_type_annotations.ec2 import Instance
@@ -21,7 +23,6 @@ from ncluster import ncluster_globals
 
 from . import ncluster_cloud_setup as create_lib
 from . import aws_util as u
-from . import backend
 from . import util
 
 # costs from https://aws.amazon.com/ec2/pricing/on-demand/
@@ -47,14 +48,15 @@ AWS_LOCK_FN = '/tmp/aws.lock'  # lock file used to prevent concurrent creation o
 NCLUSTER_DEFAULT_REGION = 'us-east-1'  # used as last resort if no other method set a region
 
 # default value of logdir root for this backend (can override with set_logdir_root)
-DEFAULT_LOGDIR_ROOT = '/ncluster/runs'
+LOGDIR_ROOT = '/ncluster/runs'
 
 # some image which is fast to load, to use for quick runs
 
+# Default image/instance types to use for make_task() with no arguments
 # get id from https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#LaunchInstanceWizard:
 # then "ncluster lookup_image_name  ami-0cc96feef8c6bbff3"
 GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20190612-x86_64-gp2'
-
+GENERIC_SMALL_INSTANCE = 't3.micro'
 
 # Uncomment when doing line profiling
 # def identity(x):
@@ -69,8 +71,31 @@ GENERIC_SMALL_IMAGE = 'amzn2-ami-hvm-2.0.20190612-x86_64-gp2'
 
 # def check_cmd(cmd):
 
+def get_logdir_root() -> str:
+  return LOGDIR_ROOT
 
-class Task(backend.Task):
+
+def set_logdir_root(logdir_root):
+  """Globally changes logdir root for all runs."""
+  global LOGDIR_ROOT
+  LOGDIR_ROOT = logdir_root
+
+
+class DummyTask:
+  name: str
+
+  def __init__(self, name):
+    self.name = name
+
+  def log(self, message, *args):
+    """Log to launcher console."""
+    if args:
+      message %= args
+
+    print(f"{util.current_timestamp()} {self.name}: {message}")
+
+
+class Task:
   """AWS task is initialized with an AWS instance and handles initialization,
   creation of SSH session, shutdown"""
   last_status: int  # status of last command executed
@@ -364,6 +389,53 @@ class Task(backend.Task):
     else:
       util.log(f"Instance has only {free_mb} MB of memory, skipping tmpfs mount")
 
+  def log(self, message, *args):
+    """Log to launcher console."""
+    if args:
+      message %= args
+
+    print(f"{util.current_timestamp()} {self.name}: {message}")
+
+  # TODO: reuse regular run
+  def run_with_output(self, cmd, non_blocking=False, ignore_errors=False) -> \
+          Tuple[str, str]:
+    """
+
+    Args:
+      cmd: single line shell command to run
+      non_blocking (bool): if True, does not wait for command to finish
+      ignore_errors: if True, will succeed even if command failed
+
+    Returns:
+      Contents of stdout/stderr as strings.
+    Raises
+      RuntimeException: if command produced non-0 returncode
+
+    """
+
+    assert '\n' not in cmd, "Do not support multi-line commands"
+    cmd: str = cmd.strip()
+    if not cmd or cmd.startswith('#'):  # ignore empty/commented out lines
+      return '', ''
+
+    stdout_fn = f"{self.remote_scratch}/{self.run_counter+1}.stdout"
+    stderr_fn = f"{self.remote_scratch}/{self.run_counter+1}.stderr"
+    cmd2 = f"{cmd} > {stdout_fn} 2> {stderr_fn}"
+
+    assert not non_blocking, "Getting output doesn't work with non_blocking"
+    status = self.run(cmd2, False, ignore_errors=True)
+    stdout = self.read(stdout_fn)
+    stderr = self.read(stderr_fn)
+
+    if self.last_status > 0:
+      self.log(f"Warning: command '{cmd}' returned {status},"
+               f" stdout was '{stdout}' stderr was '{stderr}'")
+      if not ignore_errors:
+        raise RuntimeError(f"Warning: command '{cmd}' returned {status},"
+                           f" stdout was '{stdout}' stderr was '{stderr}'")
+
+    return stdout, stderr
+
   # TODO(y): make this kwarg only
   # TODO(y): document
   def run(self, cmd, sudo=False,
@@ -645,6 +717,30 @@ class Task(backend.Task):
     #    stdout, stderr = self._run_raw('stat ' + remote_fn, ignore_errors=True)
     #    return 'No such file' not in stdout
 
+  def wait_for_file(self, fn: str, max_wait_sec: int = 3600 * 24 * 365,
+                    check_interval: float = 0.02) -> bool:
+    """
+    Waits for file maximum of max_wait_sec. Returns True if file was detected within specified max_wait_sec
+    Args:
+      fn: filename on task machine
+      max_wait_sec: how long to wait in seconds
+      check_interval: how often to check in seconds
+    Returns:
+      False if waiting was was cut short by max_wait_sec limit, True otherwise
+    """
+    #    print("Waiting for file", fn)
+    start_time = time.time()
+    while True:
+      if time.time() - start_time > max_wait_sec:
+        util.log(f"Timeout exceeded ({max_wait_sec} sec) for {fn}")
+        return False
+      if not self.exists(fn):
+        time.sleep(check_interval)
+        continue
+      else:
+        break
+    return True
+
   def write(self, remote_fn, contents):
     tmp_fn = self.local_scratch + '/' + str(util.now_micros())
     open(tmp_fn, 'w').write(contents)
@@ -713,8 +809,7 @@ class Task(backend.Task):
     run_name = ncluster_globals.get_run_for_task(self)
     self.log("Creating logdir for run " + run_name)
 
-    logdir_root = ncluster_globals.LOGDIR_ROOT
-    assert logdir_root, "LOGDIR_ROOT not set, make sure you have called ncluster.set_backend()"
+    logdir_root = LOGDIR_ROOT
 
     # TODO(y): below can be removed, since we are mkdir -p later
     if not ncluster_globals.should_skip_setup():
@@ -783,16 +878,87 @@ class RemoteTailer:
     self.t.join(timeout=10)
 
 
-class Job(backend.Job):
-  pass
+class Job:
+  """Collection of tasks close together."""
+
+  name: str
+  tasks: List[Task]
+
+  #  run_: Run
+
+  def __init__(self, name: str, tasks: List[Task] = None, **kwargs):
+    """Initializes Job object, links tasks to refer back to the Job."""
+    if tasks is None:
+      tasks = []
+    self.name = name
+    self.tasks = tasks
+    self.kwargs = kwargs
+    # TODO: maybe backlinking is not needed
+    for task in tasks:
+      task.job = self
+
+  @property
+  def logdir(self):
+    return self.tasks[0].logdir
+
+  def _task_parallel(self, method, *args, **kwargs):
+    """Runs given method on every task in the job in parallel. Blocks until all tasks finish. Propagates exception from first
+    failed task."""
+
+    exceptions = []
+
+    def task_run(task):
+      try:
+        getattr(task, method)(*args, **kwargs)
+      except Exception as e:
+        exceptions.append(e)
+
+    threads = [threading.Thread(name=f'task_{method}_{i}',
+                                target=task_run, args=[t])
+               for i, t in enumerate(self.tasks)]
+    for thread in threads:
+      thread.start()
+    for thread in threads:
+      thread.join()
+    if exceptions:
+      raise exceptions[0]
+
+  def run(self, *args, **kwargs):
+    """Runs command on every task in the job in parallel, blocks until all tasks finish.
+    See Task for documentation of args/kwargs."""
+    return self._task_parallel("run", *args, **kwargs)
+
+  def propagate_env(self, *args, **kwargs):
+    """See py:func:`aws_backend.Task.propagate_env`"""
+    return self._task_parallel("propagate_env", *args, **kwargs)
+
+  def run_with_output(self, *args, **kwargs):
+    """Runs command on every task in the job in parallel, blocks until all tasks finish.
+    See Task for documentation of args/kwargs."""
+    return self._task_parallel("run_with_output", *args, **kwargs)
+
+  def rsync(self, *args, **kwargs):
+    """See :py:func:`aws_backend.Task.rsync`"""
+    return self._task_parallel("rsync", *args, **kwargs)
+
+  def upload(self, *args, **kwargs):
+    """See :py:func:`aws_backend.Task.upload`"""
+    return self._task_parallel("upload", *args, **kwargs)
+
+  def write(self, *args, **kwargs):
+    return self._task_parallel("write", *args, **kwargs)
+
+  def _run_raw(self, *args, **kwargs):
+    return self._task_parallel("_run_raw", *args, **kwargs)
 
 
-class Run(backend.Run):
+class Run:
   """Run is a collection of jobs that share state. IE, training run will contain gradient worker job, parameter
   server job, and TensorBoard visualizer job. These jobs will use the same shared directory to store checkpoints and
   event files.
-  :ivar aws_placement_group_name: somedoc
   """
+
+  # TODO(y): get rid of this
   placement_group: str  # unique identifier to use as placement_group group name
   jobs: List[Job]
 
@@ -821,31 +987,6 @@ class Run(backend.Run):
     chief_task = ncluster_globals.get_chief(self.name)
     return chief_task.logdir
 
-  # TODO: currently this is synchronous, use non_blocking wrapper like in Job to parallelize methods
-  def run(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-
-    for job in self.jobs:
-      job.run(*args, **kwargs)
-
-  def run_with_output(self, *args, **kwargs):
-    """Runs command on every first job in the run, returns stdout."""
-    for job in self.jobs:
-      job.run_with_output(*args, **kwargs)
-
-  def _run_raw(self, *args, **kwargs):
-    """_run_raw on every job in the run."""
-    for job in self.jobs:
-      job._run_raw(*args, **kwargs)
-
-  def upload(self, *args, **kwargs):
-    """Runs command on every job in the run."""
-    for job in self.jobs:
-      job.upload(*args, **kwargs)
-
-  def make_job(self, name='', **kwargs):
-    return make_job(name+'.'+self.name, run_name=self.name, **kwargs)
-
 
 def make_task(
         name: str = '',
@@ -854,7 +995,6 @@ def make_task(
         instance_type: str = '',
         image_name: str = '',
         disk_size: int = 0,
-        logging_task: backend.Task = None,
         create_resources=True,
         spot=False,
         is_chief=True,
@@ -885,11 +1025,10 @@ def make_task(
 
   ncluster_globals.task_launched = True
 
+  logging_task = DummyTask(name=name)
+
   def log(*_args):
-    if logging_task:
-      logging_task.log(*_args)
-    else:
-      util.log(*_args)
+    logging_task.log(*_args)
 
   if is_chief:
     util.setup_local_ssh_keys()
@@ -903,8 +1042,11 @@ def make_task(
   u.validate_task_name(name)
 
   if not instance_type:
-    instance_type: str = os.environ.get('NCLUSTER_INSTANCE', 't3.micro')
+    instance_type: str = os.environ.get('NCLUSTER_INSTANCE', GENERIC_SMALL_INSTANCE)
     log("Using instance " + instance_type)
+
+  if not image_name:
+    image_name: str = os.environ.get('NCLUSTER_IMAGE', GENERIC_SMALL_IMAGE)
 
   _set_aws_environment()
   if create_resources:
@@ -928,24 +1070,25 @@ def make_task(
     if is_chief:
       u.maybe_create_placement_group(run.placement_group)
 
-  if not image_name:
-    image_name = GENERIC_SMALL_IMAGE
-  #    image_name = os.environ.get('NCLUSTER_IMAGE', GENERIC_SMALL_IMAGE)
-
   image = u.lookup_image(image_name)
   log(f"Using image '{image_name}' ({image.id})")
   keypair = u.get_keypair()
   security_group = u.get_security_group()
-  #  security_group_nd = u.get_security_group_nd()
   ec2 = u.get_ec2_resource()
 
-  _maybe_start_instance(instance)
-  _maybe_wait_for_initializing_instance(instance)
-
-  # create the instance if not present
   if instance:
     instance_reuse = True
     log(f"Reusing {instance}")
+    if instance.state['Name'] == 'stopped':
+      instance.start()
+      while True:
+        log(f"Waiting  for {instance}({instance.state['Name']}) to start.")
+        instance.reload()
+        if instance.state['Name'] == 'running':
+          break
+        time.sleep(10)
+
+  # create the instance if not present
   else:
     instance_reuse = False
     log(f"Allocating {instance_type} for task {name}")
@@ -956,7 +1099,6 @@ def make_task(
             'SecurityGroupIds': [security_group.id],
             'KeyName': keypair.name}
 
-    import getpass
     linux_user = getpass.getuser()
     aws_user = u.get_iam_username()
 
@@ -982,6 +1124,7 @@ def make_task(
       # Because of "AWS Security groups cannot be specified along with network interfaces", have to delete
       # security group spec from top level args: https://github.com/saltstack/salt/issues/25569
       args.pop('SecurityGroupIds', None)
+
       args['NetworkInterfaces'] = [{'SubnetId': subnet.id,
                                     'DeviceIndex': 0,
                                     'AssociatePublicIpAddress': True,
@@ -1013,7 +1156,7 @@ def make_task(
       assert not disk_size, f"Specified both disk_size {disk_size} and $NCLUSTER_AWS_FAST_ROOTDISK, they are incompatible as $NCLUSTER_AWS_FAST_ROOTDISK hardwired disk size"
 
       ebs = {
-        'VolumeSize': 500,
+        'VolumeSize': disk_size if disk_size else 500,
         'VolumeType': 'io1',
         'Iops': 11500
       }
@@ -1031,10 +1174,8 @@ def make_task(
         instances = ec2.create_instances(**args)
     except Exception as e:
       log(f"Instance creation for {name} failed with ({e})")
-      # log("You can change availability zone using export NCLUSTER_ZONE=...")
       log("Terminating")
-      os.kill(os.getpid(),
-              signal.SIGTERM)  # sys.exit() doesn't work inside thread
+      os.kill(os.getpid(), signal.SIGTERM)  # sys.exit() doesn't work inside thread
 
     assert instances, f"ec2.create_instances returned {instances}"
     log(f"Allocated {len(instances)} instances")
@@ -1084,8 +1225,9 @@ def make_job(
   assert name.count(
     '.') <= 1, "Job name has too many .'s (see ncluster design: Run/Job/Task hierarchy for  convention)"
 
+  # TODO(y): get rid of these dummy tasks
   # dummy tasks for logging
-  tasks = [backend.Task(f"{i}.{name}") for i in range(num_tasks)]
+  tasks = [DummyTask(f"{i}.{name}") for i in range(num_tasks)]
 
   _set_aws_environment(tasks[0])
   if create_resources:
@@ -1095,7 +1237,7 @@ def make_job(
   run_name = ncluster_globals.auto_assign_run_name_if_needed(run_name)
   _run = ncluster_globals.create_run_if_needed(run_name, make_run)
 
-  job = Job(name=name, tasks=tasks, run_name=run_name, **kwargs)
+  job = Job(name=name, run_name=run_name, **kwargs)
 
   exceptions = []
 
@@ -1154,12 +1296,8 @@ def make_run(name) -> Run:
   return run
 
 
-# TODO: this method and a few others are backend specific, document in API doc
-def _maybe_start_instance(instance):
+def _maybe_start_instance(instance: Instance) -> None:
   """Starts instance if it's stopped, no-op otherwise."""
-
-  if not instance:
-    return
 
   if instance.state['Name'] == 'stopped':
     instance.start()
@@ -1227,7 +1365,7 @@ def _maybe_create_resources(logging_task: Task = None):
 
 
 def _set_aws_environment(task: Task = None):
-  """Sets up AWS environment from NCLUSTER environment variables"""
+  """Sets up AWS environment from NCLUSTER environment variables and/or boto3 session"""
   current_zone = os.environ.get('NCLUSTER_ZONE', '')
   current_region = os.environ.get('AWS_DEFAULT_REGION', '')
 
@@ -1264,5 +1402,5 @@ def _set_aws_environment(task: Task = None):
   #    current_zone = current_region + 'a'
   #    os.environ['NCLUSTER_ZONE'] = current_zone
 
-  log(f"Using account {u.get_account_number()}:{u.get_account_name()}, region {current_region}, "
-      f"zone {current_zone}")
+  # log(f"Using account {u.get_account_number()}:{u.get_account_name()}, region {current_region}, "
+   #   f"zone {current_zone}")
