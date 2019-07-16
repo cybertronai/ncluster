@@ -919,7 +919,11 @@ class Job:
     for thread in threads:
       thread.start()
     for thread in threads:
-      thread.join()
+      while thread.is_alive():
+        thread.join(timeout=30)
+        if thread.is_alive():
+          util.log(f"Job {self.name} still waiting for {thread.getName()}")
+
     if exceptions:
       raise exceptions[0]
 
@@ -1256,7 +1260,7 @@ def make_job(
       exceptions.append(e)
 
   util.log("Creating threads")
-  threads = [threading.Thread(name=f'make_task_{i}',
+  threads = [threading.Thread(name=f'make_task({i}.{name})',
                               target=make_task_fn, args=[i])
              for i in range(num_tasks)]
   for thread in threads:
@@ -1266,7 +1270,7 @@ def make_job(
     while thread.is_alive():
       thread.join(timeout=30)
       if thread.is_alive():
-        util.log(f"still waiting for {thread.getName()}")
+        util.log(f"still waiting for thread {thread.getName()}")
 
   print("Exception are ", exceptions)
   if exceptions:
