@@ -305,7 +305,7 @@ class Task:
 
     tmux_cmd = [f'tmux set-option -g history-limit 50000 \\; ',
                 f'set-option -g mouse on \\; ',
-                f'bind-key -n C-d detach \\; ',   # CTRL+d detaches instead of killing shell
+                #                f'bind-key -n C-d detach \\; ',   # CTRL+d detaches instead of killing shell
                 f'new-session -s {self.tmux_session} -n 0 -d']
 
     # hack to get around Amazon linux not having tmux
