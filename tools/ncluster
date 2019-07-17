@@ -198,23 +198,29 @@ def connect(fragment=''):
             f"-o ServerAliveCountMax=1 " \
             f"-o ServerAliveInterval=60 " \
             f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
+  connect_cmd = ssh_cmd
+  DO_TMUX = False
   if 'INSIDE_EMACS' in os.environ:
     print("detected Emacs, skipping tmux attach")
-  pass
-  if 'NO_TMUX' in os.environ:
+  elif os.environ.get('TERM', 'dumb') == 'dumb':
+    print("Dumb terminal, doesn't support tmux, skipping tmux attach")
+  elif 'NO_TMUX' in os.environ:
     print("detected NO_TMUX, skipping tmux attach")
-    pass
-
   else:
-    connect_cmd = ssh_cmd + " tmux a"
+    DO_TMUX = True
+    connect_cmd += " tmux a"
+
   print(connect_cmd)
   exit_code = os.system(connect_cmd)
-  if exit_code != 0:
+
+  if exit_code != 0 and DO_TMUX:
     print(f"Creating ssh tmux a returned {exit_code}, recreating tmux")
     fix_cmd = ssh_cmd + " tmux new"
     exit_code = os.system(fix_cmd)
     if exit_code != 0:
       print(f"command {fix_cmd} failed with code '{exit_code}'")
+  else:
+    print(f"cmd {connect_cmd} returned {exit_code}")
 
 
 def connectm(fragment=''):
