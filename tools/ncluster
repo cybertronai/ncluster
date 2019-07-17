@@ -581,6 +581,12 @@ def disks(fragment):
     for volume in instance.volumes.all():
       device = volume.attachments[0]['Device']
       print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
+  print("Unattached disks")
+
+  ec2 = u.get_ec2_resource()
+  for volume in ec2.volumes.all():
+    if not volume.attachments:
+      print(f"{u.get_name(volume)} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s}")
 
 
 def fixkeys(_):
