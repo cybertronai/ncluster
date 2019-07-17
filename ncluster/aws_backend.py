@@ -772,6 +772,12 @@ class Task:
     self.tmux_window_id = window_id
 
   @property
+  def zone(self):
+    """Returns zone of the instance associated with task or None if not available."""
+    if self.instance:
+      return self.instance.placement.get('AvailabilityZone', None)
+
+  @property
   def num_gpus(self):
     return INSTANCE_INFO[self.instance.instance_type]['gpus']
 
