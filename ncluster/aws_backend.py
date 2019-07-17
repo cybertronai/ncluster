@@ -1141,6 +1141,7 @@ def make_task(
                                     'DeleteOnTermination': True,
                                     'InterfaceType': 'efa',
                                     'Groups': [security_group.id]}]
+    if u.get_zone():
       placement_specs['AvailabilityZone'] = u.get_zone()
 
     if placement_group:
