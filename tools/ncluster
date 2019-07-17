@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import sys
 import time
+from typing import Dict
 
 import pytz
 
@@ -38,7 +39,10 @@ with newlines stripped"""
 
 def _check_instance_found(instances, fragment, states=()):
   if not instances:
-    print(f"Couldn't find instances in state {states} matching '{fragment}' for key {u.get_keypair_name()}")
+    if states:
+      print(f"Couldn't find instances in state {states} matching '{fragment}' for key {u.get_keypair_name()}")
+    else:
+      print(f"Couldn't find instances matching '{fragment}' for key {u.get_keypair_name()}")
     return False
   return True
 
@@ -560,9 +564,12 @@ def grow_disks(fragment: str, target_size_gb=500):
     volumes = list(instance.volumes.all())
     for vol in volumes:
       volume: Volume = vol
-      print("Growing %s to %s" % (volume.id, target_size_gb))
-      response = client.modify_volume(VolumeId=volume.id, Size=target_size_gb)
-      assert u.is_good_response(response)
+      if volume.size < target_size_gb:
+        print("Growing %s to %s" % (volume.id, target_size_gb))
+        response = client.modify_volume(VolumeId=volume.id, Size=target_size_gb)
+        assert u.is_good_response(response)
+      else:
+        print(f"Volume {volume.id} is already {volume.size} GB's, skipping")
 
 
 def disks(fragment):
@@ -631,6 +638,46 @@ def efs_sync(_):
   os.system(f'cd /ncluster/sync && nsync -m {u.get_name(instance)} -d /ncluster/sync')
 
 
+def spot_prices(instance_type: str) -> Dict[str, float]:
+  """
+
+  Print spot instance pricing.
+  Args:
+    instance_type: AWS instance name. Common names can be shortcuts (p2, p3, c5)
+
+  Returns:
+    dictionary of zone->price for given instance
+  """
+  if instance_type == 'p3':
+    instance_type = 'p3.16xlarge'
+  elif instance_type == 'p3dn':
+    instance_type = 'p3dn.24xlarge'
+  elif instance_type == 'p2':
+    instance_type = 'p2.16xlarge'
+  elif instance_type == 'c5':
+    instance_type = 'c5.18xlarge'
+  elif instance_type == 'c5n':
+    instance_type = 'c5n.18xlarge'
+  if not instance_type:
+    instance_type = 'p3.16xlarge'
+  product = 'Linux/UNIX (Amazon VPC)'
+  result = {}
+  client = u.get_ec2_client()
+  print(f"Prices for instance {instance_type} on Linux")
+  for zone in [z['ZoneName'] for z in client.describe_availability_zones()['AvailabilityZones'] if z['State'] == 'available']:
+    try:
+      price = client.describe_spot_price_history(InstanceTypes=[instance_type],
+                                                 MaxResults=1,
+                                                 ProductDescriptions=[product],
+                                                 AvailabilityZone=zone)['SpotPriceHistory'][0]['SpotPrice']
+      price = float(price)
+      print(f"{zone}: {price:.2f}")
+      result[zone] = price
+    except IndexError as _:
+      pass
+  return result
+
+
 COMMANDS = {
   'ls': ls,
   'ssh': ssh,
@@ -661,6 +708,7 @@ COMMANDS = {
   'disks': disks,
   'fixkeys': fixkeys,
   'efs_sync': efs_sync,
+  'spot_prices': spot_prices,
 }
 
 
