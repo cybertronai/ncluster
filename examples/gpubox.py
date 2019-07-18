@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--name', type=str, default='gpubox',
                     help="instance name")
 parser.add_argument('--image-name', type=str,
-                    default='Deep Learning AMI (Ubuntu) Version 22.0',
+                    default='Deep Learning AMI (Ubuntu) Version 23.0',
                     help="name of AMI to use ")
 parser.add_argument('--instance-type', type=str, default='p3.2xlarge',
                     help="type of instance")
