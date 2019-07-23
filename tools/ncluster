@@ -575,12 +575,14 @@ def grow_disks(fragment: str, target_size_gb=500):
 def disks(fragment):
   """Print disk information for instance."""
   instances = u.lookup_instances(fragment, valid_states=('running', 'stopped'))
+  print(f"{'device':>10s} {'size':>10s} {'type':>10s}({'iops'}) {'id':>30s} ")
+  print("-" * 50)
   for instance in instances:
     print()
-    print(f"Disks on instance '{u.get_name(instance)}'")
+    print(f"Disks on instance '{u.get_name(instance)}' ({instance.id}, {instance.placement['AvailabilityZone']})")
     for volume in instance.volumes.all():
       device = volume.attachments[0]['Device']
-      print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s}({volume.iops}) {volume.id:>30s} ")
+      print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s}({volume.iops}) {volume.id:>30s} {u.get_name(volume)}")
   print("Unattached disks")
 
   ec2 = u.get_ec2_resource()
