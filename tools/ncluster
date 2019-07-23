@@ -580,7 +580,7 @@ def disks(fragment):
     print(f"Disks on instance '{u.get_name(instance)}'")
     for volume in instance.volumes.all():
       device = volume.attachments[0]['Device']
-      print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s} {volume.id:>30s} ")
+      print(f"{device:>10s} {volume.size:>10d} {volume.volume_type:>10s}({volume.iops}) {volume.id:>30s} ")
   print("Unattached disks")
 
   ec2 = u.get_ec2_resource()
