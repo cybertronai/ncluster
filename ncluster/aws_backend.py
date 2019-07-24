@@ -438,7 +438,7 @@ class Task:
 
   # TODO(y): make this kwarg only
   # TODO(y): document
-  def run(self, cmd, sudo=False,
+  def run(self, cmd: str, sudo=False,
           non_blocking=False,
           ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
@@ -555,10 +555,8 @@ class Task:
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
-      if util.is_set('NCLUSTER_RUN_WITH_OUTPUT_ON_FAILURE') or True:
-        self.log(
-          f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
-        self.log(f"\n{'*'*80}\nEnd failing output")
+      self.log(f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
+      self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {self._cmd} returned status {status}")
       else:
