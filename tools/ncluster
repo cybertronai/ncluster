@@ -61,7 +61,7 @@ def ls(fragment=''):
   """List running instances"""
   print(f"https://console.aws.amazon.com/ec2/v2/home?region={u.get_region()}")
 
-  stopped_instances = u.lookup_instances(fragment, valid_states=['stopped'])
+  stopped_instances = u.lookup_instances(fragment, states=['stopped'])
   stopped_names = list(u.get_name(i) for i in stopped_instances)
   if stopped_names:
     print("ignored stopped instances: ", ", ".join(stopped_names))
@@ -117,6 +117,7 @@ def etchosts(_):
   print("""\n127.0.0.1    localhost
 255.255.255.255    broadcasthost
 ::1             localhost""")
+
 
 def _user_keypair_check(instance):
   launching_user = instance.key_name[len(u.get_prefix()) + 1:]
@@ -257,10 +258,10 @@ def kill(fragment: str = '', stop_instead_of_kill: bool = False):
   """
 
   if stop_instead_of_kill:
-    valid_states = ['running']
+    states = ['running']
   else:
-    valid_states = ['running', 'stopped']
-  instances = u.lookup_instances(fragment, valid_states=valid_states, limit_to_current_user=False)
+    states = ['running', 'stopped']
+  instances = u.lookup_instances(fragment, states=states, limit_to_current_user=False)
   instances_to_kill = []
   instances_to_skip = []
   users_to_skip = set()
@@ -284,7 +285,7 @@ def kill(fragment: str = '', stop_instead_of_kill: bool = False):
 
   if instances_to_skip:
     print(f"Skipping {','.join(instances_to_skip)} launched by ({', '.join(users_to_skip)}), override with {override_action}")
-  if not _check_instance_found(instances_to_kill, fragment, valid_states):
+  if not _check_instance_found(instances_to_kill, fragment, states):
     return
 
   print(f"{action}:")
@@ -336,7 +337,7 @@ def reallystop(*args, **kwargs):
 
 
 def start(fragment=''):
-  instances = u.lookup_instances(fragment, valid_states=['stopped'])
+  instances = u.lookup_instances(fragment, states=['stopped'])
   for i in instances:
     print(u.get_name(i), i.instance_type, i.key_name)
 
@@ -574,7 +575,7 @@ def grow_disks(fragment: str, target_size_gb=500):
 
 def disks(fragment):
   """Print disk information for instance."""
-  instances = u.lookup_instances(fragment, valid_states=('running', 'stopped'))
+  instances = u.lookup_instances(fragment, states=('running', 'stopped'))
   print(f"{'device':>10s} {'size':>10s} {'type':>10s}({'iops'}) {'id':>30s} ")
   print("-" * 50)
   for instance in instances:

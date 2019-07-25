@@ -42,6 +42,13 @@ u = sys.modules[__name__]
 # https://github.com/boto/boto3/issues/1055
 # https://stackoverflow.com/questions/52087307/adding-type-hinting-to-functions-that-return-boto3-objects
 
+
+def validate_states(states: Iterable[str]):
+  valid_states = {'running', 'stopped', 'initializing', 'terminated'}
+  invalid_states = set(states).difference(valid_states)
+  assert not invalid_states, f"Found invalid states {invalid_states}, valid states are {valid_states}"
+
+
 def get_vpc() -> Vpc:
   """
   Returns current VPC (ec2.Vpc object)
@@ -274,7 +281,7 @@ def set_region(region: str) -> None:
 
 
 def get_zone() -> str:
-  """Returns current zone, or empty string if it's unset."""
+  """Returns current zone, or None if it's unset."""
   return util.get_env('NCLUSTER_ZONE')
 
 
@@ -459,17 +466,18 @@ def lookup_instance_exact(name: str, instance_type: str = '', image_name: str = 
       return result[0]
 
 
-def lookup_instance(fragment='', valid_states=('running',)):
+def lookup_instance(fragment='', states=('running',)):
   """Wrapper around lookup_instances that checks returns a single unambiguous matching instance."""
 
-  instances = lookup_instances(fragment, valid_states=valid_states)
-  assert instances, f"Didn't find any instances matching '{fragment}' in state {valid_states}"
+  validate_states(states)
+  instances = lookup_instances(fragment, states=states)
+  assert instances, f"Didn't find any instances matching '{fragment}' in state {states}"
   names = [get_name(i) for i in instances]
   assert len(instances) == 1, f"Found multiple instances matching fragment {fragment}: {','.join(names)}"
   return instances[0]
 
 
-def lookup_instances(fragment='', *, verbose=True, filter_by_key=False, valid_states=('running',),
+def lookup_instances(fragment='', *, verbose=True, filter_by_key=False, states=('running',),
                      limit_to_current_user=False) -> List[Instance]:
   """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
   most recent instance first). Optionally filters by key, only including instances launched with
@@ -484,6 +492,8 @@ def lookup_instances(fragment='', *, verbose=True, filter_by_key=False, valid_st
     limit_to_current_user Restrict result to instances that current user can ssh into
 
   """
+
+  validate_states(states)
 
   if fragment.startswith("'"):
     assert fragment.endswith("'")
@@ -504,7 +514,7 @@ def lookup_instances(fragment='', *, verbose=True, filter_by_key=False, valid_st
 
   instance_list = []
   for instance in ec2.instances.all():
-    if instance.state['Name'] not in valid_states:
+    if instance.state['Name'] not in states:
       continue
     if limit_to_current_user and instance.key_name != get_keypair_name():
       continue

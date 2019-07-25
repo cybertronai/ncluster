@@ -1089,6 +1089,12 @@ def make_task(
     instance_reuse = True
     log(f"Reusing {instance}")
     if instance.state['Name'] == 'stopped':
+      current_zone = u.get_zone()
+      instance_zone = instance.placement['AvailabilityZone']
+      if current_zone and current_zone != instance_zone:
+        assert False, f"Can not reuse existing instance {name}, it is in zone {instance_zone} but currently enforcing zone {current_zone}. " \
+          f"Either unset your NCLUSTER_ZONE for zone-agnostic config, or kill instance {name} to relaunch in new zone"
+
       instance.start()
       while True:
         log(f"Waiting  for {instance}({instance.state['Name']}) to start.")
