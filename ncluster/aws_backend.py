@@ -197,36 +197,37 @@ class Task:
 
     # Part 1: user initialization
     #  if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
-    if self._is_install_script_fn_present():
-      #  self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
-      # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
-      # assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
+    if not ncluster_globals.should_skip_setup():
+      if self._is_install_script_fn_present():
+        #  self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
+        # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
+        # assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
 
-      if not self._is_efs_mounted():
-        self._mount_efs()
-    else:
-      self.log("running install script")
+        if not self._is_efs_mounted():
+          self._mount_efs()
+      else:
+        self.log("running install script")
 
-      # bin/bash needed to make self-executable or use with UserData
-      self.install_script = '#!/bin/bash\n' + self.install_script
-      self.install_script += f'\necho ok > {self._install_script_fn}\n'
-      self.file_write('install.sh', util.shell_add_echo(self.install_script))
-      self.run('bash -e install.sh')  # fail on errors
-      assert self._is_install_script_fn_present(), f"Install script didn't write to {self._install_script_fn}"
+        # bin/bash needed to make self-executable or use with UserData
+        self.install_script = '#!/bin/bash\n' + self.install_script
+        self.install_script += f'\necho ok > {self._install_script_fn}\n'
+        self.file_write('install.sh', util.shell_add_echo(self.install_script))
+        self.run('bash -e install.sh')  # fail on errors
+        assert self._is_install_script_fn_present(), f"Install script didn't write to {self._install_script_fn}"
 
-    #  assert not (ncluster_globals.should_skip_setup() and util.is_set('NCLUSTER_FORCE_SETUP')), f"User setting NCLUSTER_FORCE_SETUP is enabled, but API requested task with no setup, unset NCLUSTER_FORCE_SETUP and try again."
+      #  assert not (ncluster_globals.should_skip_setup() and util.is_set('NCLUSTER_FORCE_SETUP')), f"User setting NCLUSTER_FORCE_SETUP is enabled, but API requested task with no setup, unset NCLUSTER_FORCE_SETUP and try again."
 
     # Part 2: launcher initialization
     if ncluster_globals.should_skip_setup():  # API-level flag ..make_task(..., skip_setup=True)
-      should_run_setup = False
+      should_skip_setup = True
     #    elif util.is_set('NCLUSTER_FORCE_SETUP'):
-    #      should_run_setup = True
+    #      should_skip_setup = False
     elif self._is_initialized_fn_present():
-      should_run_setup = False              # default settings + reusing previous machine
+      should_skip_setup = True              # default settings + reusing previous machine
     else:
-      should_run_setup = True               # default settings + new machine
+      should_skip_setup = False               # default settings + new machine
 
-    if should_run_setup:
+    if not should_skip_setup:
       stdout, stderr = self.run_with_output('df')
       if '/ncluster' in stdout:
         self.log("Detected ncluster EFS")
@@ -297,33 +298,28 @@ class Task:
     return present
 
   def _setup_tmux(self):
-    self.log("Setting up tmux")
-
     self.tmux_session = self.name.replace('.', '=')
     self.tmux_window_id = 0
     self.tmux_available_window_ids = [0]
 
-    tmux_cmd = [f'tmux set-option -g history-limit 50000 \\; ',
-                f'set-option -g mouse on \\; ',
-                #                f'bind-key -n C-d detach \\; ',   # CTRL+d detaches instead of killing shell
-                f'new-session -s {self.tmux_session} -n 0 -d']
-
-    # hack to get around Amazon linux not having tmux
-    if self._linux_type == 'amazon':
-      self.log("Amazon linux detected, installing tmux")
-      self._run_raw('sudo yum install tmux -y')
-      del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
-
-#      if not util.is_set("NCLUSTER_NOKILL_TMUX") and not ncluster_globals.should_skip_setup():
     if not ncluster_globals.should_skip_setup():
-        self._run_raw(f'tmux kill-session -t {self.tmux_session}',
-                      ignore_errors=True)
-    else:
-      print(
-        "Warning, NCLUSTER_NOKILL_TMUX or skip_setup is set, make sure remote tmux prompt is available or things will hang")
+      self.log("Setting up tmux")
 
-    if not ncluster_globals.should_skip_setup():
+      tmux_cmd = [f'tmux set-option -g history-limit 50000 \\; ',
+                  f'set-option -g mouse on \\; ',
+                  #                f'bind-key -n C-d detach \\; ',   # CTRL+d detaches instead of killing shell
+                  f'new-session -s {self.tmux_session} -n 0 -d']
+
+      # hack to get around Amazon linux not having tmux
+      if self._linux_type == 'amazon':
+        self.log("Amazon linux detected, installing tmux")
+        self._run_raw('sudo yum install tmux -y')
+        del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
+
+      self._run_raw(f'tmux kill-session -t {self.tmux_session}', ignore_errors=True)
       self._run_raw(''.join(tmux_cmd))
+    else:
+      print("Warning, skip_setup is set, this will hang if remote tmux prompt is not available")
 
     self._can_run = True
 
@@ -477,7 +473,7 @@ class Task:
 
     # todo(y): is this check still needed?
     assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
-
+a
     # This takes half a second and only useful for debugging
     # self.file_write(self._cmd_fn, cmd + '\n')
 
@@ -1106,7 +1102,8 @@ def make_task(
   # create the instance if not present
   else:
     instance_reuse = False
-    log(f"Allocating {instance_type} for task {name}")
+    disk_size_str = f"({disk_size} GB)" if disk_size else ''
+    log(f"Allocating {instance_type}{disk_size_str} for task {name}")
     args = {'ImageId': image.id,
             'InstanceType': instance_type,
             'MinCount': 1,
@@ -1187,6 +1184,7 @@ def make_task(
       if spot:
         instances = u.create_spot_instances(args)
       else:
+        assert not ncluster_globals.should_skip_setup(), "Creating new instances, but skip_setup is used, this setting is only to be used for reruns"
         instances = ec2.create_instances(**args)
     except Exception as e:
       log(f"Instance creation for {name} failed with ({e})")
