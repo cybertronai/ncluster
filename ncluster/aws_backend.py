@@ -829,7 +829,6 @@ class Task:
     while logdir in stdout:
       counter += 1
       new_logdir = f'{logdir_root}/{run_name}.{counter:02d}'
-      self.log(f'Warning, logdir {logdir} exists, deduping to {new_logdir}')
       logdir = new_logdir
     self.run(f'mkdir -p {logdir}')
 

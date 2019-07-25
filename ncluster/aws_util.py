@@ -463,7 +463,7 @@ def lookup_instance(fragment='', valid_states=('running',)):
   """Wrapper around lookup_instances that checks returns a single unambiguous matching instance."""
 
   instances = lookup_instances(fragment, valid_states=valid_states)
-  assert instances, f"Didn't find any instances matching '{fragment}'"
+  assert instances, f"Didn't find any instances matching '{fragment}' in state {valid_states}"
   names = [get_name(i) for i in instances]
   assert len(instances) == 1, f"Found multiple instances matching fragment {fragment}: {','.join(names)}"
   return instances[0]
