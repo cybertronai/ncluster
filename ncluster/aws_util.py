@@ -477,7 +477,7 @@ def lookup_instance(fragment='', states=('running',)):
   return instances[0]
 
 
-def lookup_instances(fragment='', *, verbose=True, filter_by_key=False, states=('running',),
+def lookup_instances(fragment='', *, verbose=True, states=('running',),
                      limit_to_current_user=False) -> List[Instance]:
   """Returns List of ec2.Instance object whose name contains fragment, in reverse order of launching (ie,
   most recent instance first). Optionally filters by key, only including instances launched with
@@ -534,9 +534,6 @@ def lookup_instances(fragment='', *, verbose=True, filter_by_key=False, states=(
   filtered_instance_list = []  # filter by key
   vprint("Using region ", region)
   for (ts, instance) in sorted_instance_list:
-    if filter_by_key and instance.key_name != get_keypair_name():
-      vprint(f"Got key {instance.key_name}, expected {get_keypair_name()}")
-      continue
     filtered_instance_list.append(instance)
   return filtered_instance_list
 
