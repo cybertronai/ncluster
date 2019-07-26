@@ -473,7 +473,7 @@ class Task:
 
     # todo(y): is this check still needed?
     assert ' & ' not in cmd and not cmd.endswith('&'), f"cmd {cmd} contains &, that breaks things"
-a
+
     # This takes half a second and only useful for debugging
     # self.file_write(self._cmd_fn, cmd + '\n')
 
@@ -984,7 +984,7 @@ class Run:
       util.log(f"Overriding placement group through NCLUSTER_AWS_PLACEMENT_GROUP={placement_group}")
       self.placement_group = placement_group
 
-    util.log(f"Choosing placement_group for run {name} to be {self.placement_group}")
+    util.log(f"Choosing unique new placement_group for run {name} to be {self.placement_group}")
 
   @property
   def logdir(self):
@@ -1252,6 +1252,15 @@ def make_job(
   _run = ncluster_globals.create_run_if_needed(run_name, make_run)
 
   job = Job(name=name, run_name=run_name, **kwargs)
+
+  # disallow partial reuse of instances if placement group is not set
+  # TODO(y): automatically retrieve placement group from existing instances
+  #import pdb; pdb.set_trace()
+  if not util.is_set('NCLUSTER_AWS_PLACEMENT_GROUP'):
+    names = {u.get_name(i) for i in u.lookup_instances(name, limit_to_current_user=True, states=['running','stopped'])}
+    expected_names = {f'{i}.{name}' for i in range(num_tasks)}
+    intersection = names.intersection(expected_names)
+    assert not intersection or intersection == expected_names, f"Starting a new job where some instances are already created, must set NCLUSTER_AWS_PLACEMENT_GROUP manually, or delete {intersection}"
 
   exceptions = []
 
