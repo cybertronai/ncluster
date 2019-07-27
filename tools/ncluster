@@ -219,8 +219,9 @@ def connect(fragment=''):
   exit_code = os.system(connect_cmd)
 
   if exit_code != 0 and DO_TMUX:
-    print(f"Creating ssh tmux a returned {exit_code}, recreating tmux")
     fix_cmd = ssh_cmd + " tmux new"
+    print(f"Creating ssh tmux a returned {exit_code}, recreate tmux using '{fix_cmd}'")
+    return
     exit_code = os.system(fix_cmd)
     if exit_code != 0:
       print(f"command {fix_cmd} failed with code '{exit_code}'")
