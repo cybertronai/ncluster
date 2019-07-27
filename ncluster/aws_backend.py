@@ -1060,20 +1060,7 @@ def make_task(
     pass
 
   run: Run = ncluster_globals.get_run_object(run_name)
-  placement_group = ''
-  if ncluster_globals.is_enforced_placement_group():
-    assert u.instance_supports_placement_groups(instance_type)
-    assert run
-
   instance = u.lookup_instance_exact(name, instance_type, image_name)
-
-  # only create placement group for 1. new instances, 2. support for placement and 3. launched as part of a group
-  # TODO(y) when reusing previous instances, run.placement_group will not correspond to actual placement name used, can fix this by querying instance attributes
-  if instance is None and u.instance_supports_placement_groups(instance_type) and run:
-    placement_group = run.placement_group
-    log(f"Launching into placement_group group {placement_group}")
-    if is_chief:
-      u.maybe_create_placement_group(run.placement_group)
 
   image = u.lookup_image(image_name)
   log(f"Using image '{image_name}' ({image.id})")
@@ -1146,8 +1133,8 @@ def make_task(
     if u.get_zone():
       placement_specs['AvailabilityZone'] = u.get_zone()
 
-    if placement_group:
-      placement_specs['GroupName'] = placement_group
+    if run.placement_group:
+      placement_specs['GroupName'] = run.placement_group
 
     args['Placement'] = placement_specs
     args['Monitoring'] = {'Enabled': True}
@@ -1249,7 +1236,15 @@ def make_job(
 
   name = ncluster_globals.auto_assign_job_name_if_needed(name)
   run_name = ncluster_globals.auto_assign_run_name_if_needed(run_name)
-  _run = ncluster_globals.create_run_if_needed(run_name, make_run)
+  _run: Run = ncluster_globals.create_run_if_needed(run_name, make_run)
+
+  if ncluster_globals.is_enforced_placement_group():
+    assert u.instance_supports_placement_groups(instance_type)
+
+  # only create placement group for 1. new instances, 2. support for placement and 3. launched as part of a group
+  placement_group = _run.placement_group
+  util.log(f"Launching into placement_group group {placement_group}")
+  u.maybe_create_placement_group(_run.placement_group)
 
   job = Job(name=name, run_name=run_name, **kwargs)
 
