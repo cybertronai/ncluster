@@ -1048,8 +1048,11 @@ def validate_local_keypair() -> None:
   """Check that .pem file corresponding to default keypair is present."""
   key_name = get_keypair_name()
   keypair_fn = get_keypair_fn()
+  key_username = key_name[len('ncluster-'):]
+
   if key_name in get_keypair_dict():
-    assert os.path.exists(keypair_fn), f"Keypair '{key_name}' exists, but couldn't find corresponding .pem file under '{keypair_fn}'. Either get this file or delete it using 'ncluster fixkeys'"
+    assert os.path.exists(keypair_fn), f"Keypair '{key_name}' exists, but couldn't find corresponding .pem file under '{keypair_fn}'. Solutions are:\n " \
+      f"1: Get this file user who launched task under USER={key_username} \n 2. Delete it using 'ncluster fixkeys' \n 3. Run as a unique user by setting 'export USER=someothername'"
 
 
 def running_on_aws() -> bool:
