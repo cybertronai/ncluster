@@ -605,10 +605,9 @@ def fixkeys(_):
   ec2 = u.get_ec2_resource()
   instance_list = []
   for instance in ec2.instances.all():
-    if instance.key_name == key_name:
-      if instance.state == 'terminated':
-        continue
-      instance_list.append(instance)
+    if instance.state == 'terminated':
+      continue
+    instance_list.append(instance)
   if instance_list:
     print("Warning, after deleting keypair, the following instances will be no longer accessible:")
     for i in instance_list:
