@@ -373,8 +373,7 @@ def get_efs_name() -> str:
 
 
 def get_username() -> str:
-  assert 'USER' in os.environ, "why isn't USER defined?"
-  return os.environ['USER']
+  return os.environ.get('USER', 'undefined-user')
 
 
 def lookup_image(wildcard: str) -> Image:
