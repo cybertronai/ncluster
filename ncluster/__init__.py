@@ -23,30 +23,6 @@ from . import aws_util as u
 from . import ncluster_globals
 
 
-def add_authorized_keys(keys: list) -> str:
-  """Add given public keys to list of keys authorized to access ncluster instances."""
-
-  current_keys = os.environ.get('NCLUSTER_AUTHORIZED_KEYS', '')
-  if current_keys:
-    current_keys_list = current_keys.split(';')
-  else:
-    current_keys_list = []
-
-  current_keys_list.extend(keys)
-  current_keys_str = ';'.join(current_keys_list)
-  os.environ['NCLUSTER_AUTHORIZED_KEYS'] = current_keys_str
-  return current_keys_str
-
-
-# # TODO: remove?
-# import collections
-# def join(things_to_join):
-#   if isinstance(things_to_join, collections.Iterable):
-#     for thing in things_to_join:
-#       thing.join()
-#   else:
-#     things_to_join.join()
-
 print(f"ncluster version {__version__}")
 
 if not util.is_set('NCLUSTER_DISABLE_PDB_HANDLER'):
