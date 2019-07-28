@@ -7,3 +7,4 @@ paramiko
 portalocker
 portpicker
 pytz
+wandb

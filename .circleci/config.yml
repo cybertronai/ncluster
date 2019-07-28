@@ -49,6 +49,7 @@ jobs:
           command: |
             . venv/bin/activate
             echo 'hello'
+            python tests/integration_test.py
 
       - store_artifacts:
           path: test-reports

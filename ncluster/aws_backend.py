@@ -590,6 +590,8 @@ class Task:
     excludes += "--exclude=\'.cache/\' "
     excludes += "--exclude=\'__pycache__/\' "
     excludes += "--exclude=\'wandb/run-\' "
+    excludes += "--exclude=\'.eggs\' "
+
     if exclude_git:
       excludes += f"--exclude=\'.git/\' "
     cmd = (f'rsync -av {excludes} -e "ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no" ' +
