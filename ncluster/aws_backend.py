@@ -775,7 +775,7 @@ class Task:
 
   @property
   def num_gpus(self):
-    return INSTANCE_INFO[self.instance.instance_type]['gpus']
+    return INSTANCE_INFO[self.instance.instance_type].get('gpus', 0)
 
   @property
   def output(self):
