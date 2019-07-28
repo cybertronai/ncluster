@@ -4,6 +4,11 @@ from . import util
 
 from .aws_backend import make_task
 from .aws_backend import make_job
+
+# for type annotations
+from .aws_backend import Job
+from .aws_backend import Task
+
 from .aws_util import running_on_aws
 from .aws_util import get_zone
 from .aws_util import get_region
