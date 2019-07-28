@@ -692,6 +692,7 @@ COMMANDS = {
   'ls': ls,
   'ssh': ssh,
   'ssh_': old_ssh,
+  'old_ssh': old_ssh,
   'mosh': mosh,
   'kill': kill,
   'reallykill': reallykill,

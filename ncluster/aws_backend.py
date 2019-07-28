@@ -1133,7 +1133,7 @@ def make_task(
     if u.get_zone():
       placement_specs['AvailabilityZone'] = u.get_zone()
 
-    if run.placement_group:
+    if run and run.placement_group:
       placement_specs['GroupName'] = run.placement_group
 
     args['Placement'] = placement_specs

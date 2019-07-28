@@ -226,8 +226,7 @@ def is_set(name: str) -> bool:
   assert name in env_settings
 
   val = os.environ.get(name, '0')
-  assert val == '0' or val == '1', f"env var {name} has value {val}, expected 0 or 1"
-  return val == '1'
+  return not (val == '0')
 
 
 def get_env(name: str) -> Optional[str]:

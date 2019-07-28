@@ -268,7 +268,7 @@ def get_account_name() -> str:
 
 def get_iam_username() -> str:
   iam_client = boto3.client('iam')
-  return iam_client.get_user()['User']['UserName']
+  return iam_client.get_user()['User'].get('UserName', '')
 
 
 def get_region() -> str:
