@@ -195,17 +195,9 @@ class Task:
     self._initialized_fn = f'_ncluster_initialized'         # user initialization
     self._install_script_fn = f'_ncluster_install_script'   # launcher initialiation
 
-    # Part 1: user initialization
-    #  if self._is_install_script_fn_present() and not util.is_set('NCLUSTER_FORCE_SETUP'):
+    # Part 1: user initialization, running install script
     if not ncluster_globals.should_skip_setup():
-      if self._is_install_script_fn_present():
-        #  self.log("Reusing previous initialized state, use NCLUSTER_FORCE_SETUP to force re-initialization of machine")
-        # EFS automatic mount https://github.com/cybertronai/ncluster/issues/43
-        # assert self._is_efs_mounted(),  f"EFS is not mounted, connect to instance '{name}' and run following '{u.get_efs_mount_command()}'"
-
-        if not self._is_efs_mounted():
-          self._mount_efs()
-      else:
+      if not self._is_install_script_fn_present() and self.install_script:
         self.log("running install script")
 
         # bin/bash needed to make self-executable or use with UserData
@@ -215,31 +207,15 @@ class Task:
         self.run('bash -e install.sh')  # fail on errors
         assert self._is_install_script_fn_present(), f"Install script didn't write to {self._install_script_fn}"
 
-      #  assert not (ncluster_globals.should_skip_setup() and util.is_set('NCLUSTER_FORCE_SETUP')), f"User setting NCLUSTER_FORCE_SETUP is enabled, but API requested task with no setup, unset NCLUSTER_FORCE_SETUP and try again."
-
     # Part 2: launcher initialization
     if ncluster_globals.should_skip_setup():  # API-level flag ..make_task(..., skip_setup=True)
       should_skip_setup = True
-    #    elif util.is_set('NCLUSTER_FORCE_SETUP'):
-    #      should_skip_setup = False
     elif self._is_initialized_fn_present():
       should_skip_setup = True              # default settings + reusing previous machine
     else:
       should_skip_setup = False               # default settings + new machine
 
     if not should_skip_setup:
-      stdout, stderr = self.run_with_output('df')
-      if '/ncluster' in stdout:
-        self.log("Detected ncluster EFS")
-#      elif not util.is_set("NCLUSTER_AWS_NOEFS"):
-      else:
-        self._mount_efs()
-
-      if '/tmpfs' in stdout:
-        self.log("Detected ncluster tmpfs")
-      else:
-        self._mount_tmpfs()
-
       ##########################################
       # SSH setup
       ##########################################
@@ -263,6 +239,11 @@ class Task:
         seen_keys.add(key)
         auth_keys_file_str += key + '\n'
       self.run(f"""echo "{auth_keys_file_str}" >> ~/.ssh/authorized_keys""")
+
+      # Mount file-systems
+      self._mount_efs()
+      # self._mount_tmpfs()
+
 
     self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS',  # public keys that will work for passwordless SSH to machine
                         'WANDB_API_KEY'    # optional logging, if defined locally also propagate to remote machine
@@ -328,6 +309,10 @@ class Task:
     return '/ncluster' in stdout
 
   def _mount_efs(self):
+    if self._is_efs_mounted():
+      self.log("Detected EFS, skipping remount")
+      return
+
     self.log("Mounting ncluster EFS")
     region = u.get_region()
     efs_id = u.get_efs_dict()[u.get_prefix()]
