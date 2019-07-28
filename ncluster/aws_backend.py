@@ -231,19 +231,21 @@ class Task:
       auth_keys_env_var_str = util.get_authorized_keys()
 
       # 3. dedup NCLUSTER_AUTHORIZED_KEYS and add to task environment + its ~/.ssh/authorized_keys
-      auth_keys_file_str = ''
+      auth_keys_file_str = '\n'
       seen_keys = set()
       for key in auth_keys_env_var_str.split(';'):
         if not key or key in seen_keys:
           continue
         seen_keys.add(key)
+        assert key.count('ssh-rsa') <= 1, f"Malformed key, multiple ssh-rsa strings: '{key}'"
+        if 'ssh-rsa' not in key:
+          print(f"Warning, didn't see ssh-rsa in key {key}")
         auth_keys_file_str += key + '\n'
       self.run(f"""echo "{auth_keys_file_str}" >> ~/.ssh/authorized_keys""")
 
       # Mount file-systems
       self._mount_efs()
       # self._mount_tmpfs()
-
 
     self.propagate_env(['NCLUSTER_AUTHORIZED_KEYS',  # public keys that will work for passwordless SSH to machine
                         'WANDB_API_KEY'    # optional logging, if defined locally also propagate to remote machine
