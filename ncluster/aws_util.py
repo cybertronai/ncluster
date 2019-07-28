@@ -373,7 +373,7 @@ def get_efs_name() -> str:
 
 
 def get_username() -> str:
-  return os.environ.get('USER', 'undefined-user')
+  return os.environ.get('USER', 'undefineduser')
 
 
 def lookup_image(wildcard: str) -> Image:
