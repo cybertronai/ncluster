@@ -25,6 +25,6 @@ from . import ncluster_globals
 
 print(f"ncluster version {__version__}")
 
-if not util.is_set('NCLUSTER_DISABLE_PDB_HANDLER'):
+if not util.is_set('NCLUSTER_DISABLE_PDB_HANDLER') and not util.is_set('NCLUSTER_RUNNING_UNDER_CIRCLECI'):
   util.install_pdb_handler()  # CTRL+\ drops into pdb
 

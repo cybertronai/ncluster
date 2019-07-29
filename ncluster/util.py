@@ -26,6 +26,7 @@ env_settings = {
   'NCLUSTER_AWS_FAST_ROOTDISK',       # request $1/hour high performance AWS disk
   'NCLUSTER_AWS_PLACEMENT_GROUP',     # name of placement group to use, use when adding machines to a previous launched job
   'NCLUSTER_DISABLE_PDB_HANDLER',     # don't intercept pdb exception by default
+  'NCLUSTER_RUNNING_UNDER_CIRCLECI',  # special settings for non-interactive CircleCI integration test env
   #  'NCLUSTER_IMAGE',
   'NCLUSTER_SSH_USERNAME',            # used as workaround when Amazon Linux detection fails
   'NCLUSTER_ZONE',                    # zone spec for when automatic zone fails (p3dn's + spot instances)
@@ -296,7 +297,11 @@ def setup_local_ssh_keys() -> str:
     assert os.path.exists(ID_RSA), f"Public key {ID_RSA_PUB} exists but private key {ID_RSA} not found, delete {ID_RSA_PUB} and run again to regenerate pair"
     log(f"Found local keypair {ID_RSA}")
   elif os.path.exists(ID_RSA):
-    assert os.path.exists(ID_RSA_PUB), f"Private key {ID_RSA} exists but public key {ID_RSA_PUB} not found, delete {ID_RSA} and run again to regenerate pair"
+    if not os.path.exists(ID_RSA_PUB):
+      if is_set('NCLUSTER_RUNNING_UNDER_CIRCLECI'):
+        pass
+      else:
+        assert os.path.exists(ID_RSA_PUB), f"Private key {ID_RSA} exists but public key {ID_RSA_PUB} not found, delete {ID_RSA} and run again to regenerate pair"
     log(f"Found local keypair {ID_RSA}")
   else:
     log(f"Generating keypair {ID_RSA}")
