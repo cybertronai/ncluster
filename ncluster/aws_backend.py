@@ -1234,7 +1234,7 @@ def make_job(
 
   # only create placement group for 1. new instances, 2. support for placement and 3. launched as part of a group
   placement_group = _run.placement_group
-  util.log(f"Launching into placement_group group {placement_group}")
+  util.log(f"Launching '{name}' into placement_group group {placement_group}")
   u.maybe_create_placement_group(_run.placement_group)
 
   job = Job(name=name, run_name=run_name, **kwargs)
@@ -1243,10 +1243,10 @@ def make_job(
   # TODO(y): automatically retrieve placement group from existing instances
   #import pdb; pdb.set_trace()
   if not util.is_set('NCLUSTER_AWS_PLACEMENT_GROUP'):
-    names = {u.get_name(i) for i in u.lookup_instances(name, limit_to_current_user=True, states=['running','stopped'])}
+    names = {u.get_name(i) for i in u.lookup_instances(name, limit_to_current_user=True, states=['running', 'stopped'])}
     expected_names = {f'{i}.{name}' for i in range(num_tasks)}
     intersection = names.intersection(expected_names)
-    assert not intersection or intersection == expected_names, f"Starting a new job where some instances are already created, must set NCLUSTER_AWS_PLACEMENT_GROUP manually, or delete {intersection}"
+    assert not intersection or intersection == expected_names, f"Starting a new job where some instances are already created (names={names}, expected_names={expected_names}), must set NCLUSTER_AWS_PLACEMENT_GROUP manually, or delete {intersection}"
 
   exceptions = []
 
@@ -1411,5 +1411,4 @@ def _set_aws_environment(task: Task = None):
   #    current_zone = current_region + 'a'
   #    os.environ['NCLUSTER_ZONE'] = current_zone
 
-  # log(f"Using account {u.get_account_number()}:{u.get_account_name()}, region {current_region}, "
-   #   f"zone {current_zone}")
+  log(f"Using account {u.get_account_number()}:{u.get_account_name()}, region {current_region}, zone {current_zone}")
