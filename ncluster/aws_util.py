@@ -1064,8 +1064,8 @@ def running_on_aws() -> bool:
   cmd = 'wget -q http://instance-data.ec2.internal && echo yes || echo no'
   p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
   (stdout, stderr) = p.communicate()
-  stdout = stdout.decode('ascii')
-  stderr = stderr.decode('ascii')
+  stdout = stdout.decode('ascii') if stdout else ''
+  stderr = stderr.decode('ascii') if stdout else ''
   if stderr:
     print(f"Warning, running_on_aws check got stderr '{stderr}'")
 
