@@ -42,4 +42,4 @@ def ossystem(cmd):
   p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT)
   (stdout, stderr) = p.communicate()
-  return stdout.decode('ascii')
+  return stdout.decode('ascii') if stdout else ''

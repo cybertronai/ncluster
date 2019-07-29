@@ -1065,7 +1065,7 @@ def running_on_aws() -> bool:
   p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
   (stdout, stderr) = p.communicate()
   stdout = stdout.decode('ascii') if stdout else ''
-  stderr = stderr.decode('ascii') if stdout else ''
+  stderr = stderr.decode('ascii') if stderr else ''
   if stderr:
     print(f"Warning, running_on_aws check got stderr '{stderr}'")
 

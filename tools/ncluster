@@ -27,7 +27,7 @@ with newlines stripped"""
   #  print(cmd)
   p = subprocess.Popen(user_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
   (stdout, _) = p.communicate()
-  stdout = stdout.decode('ascii')
+  stdout = stdout.decode('ascii') if stdout else ''
   lines = stdout.split('\n')
   stripped_lines = []
   for l in lines:
