@@ -988,7 +988,7 @@ def make_task(
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
-        disk_size: int = 0,
+        disk_size: int = 500,
         create_resources=True,
         spot=False,
         is_chief=True,
