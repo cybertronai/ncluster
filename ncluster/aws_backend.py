@@ -1099,7 +1099,9 @@ def make_task(
         {'Key': 'User',
          'Value': aws_user},
         {'Key': 'UserLinux',
-         'Value': linux_user}
+         'Value': linux_user},
+        {'Key': 'ncluster',
+         'Value': 'ncluster'},
       ]
     }]
 

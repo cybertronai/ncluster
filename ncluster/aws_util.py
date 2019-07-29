@@ -631,7 +631,7 @@ def validate_run_name(name):
 
 def create_name_tags(name):
   """Returns [{'Key': 'Name', 'Value': name}] """
-  return [{'Key': 'Name', 'Value': name}]
+  return [{'Key': 'Name', 'Value': name}, {'Key': 'ncluster', 'Value': 'ncluster'}]
 
 
 def create_efs(name) -> str:
