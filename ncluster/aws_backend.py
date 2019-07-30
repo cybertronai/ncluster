@@ -515,6 +515,9 @@ class Task:
       else:
         self.log(f"Warning: command {cmd} returned status {status}")
 
+      if return_output:
+        return output
+
   def propagate_env(self, env_vars: List[str]):
     """Propagates values of env_vars from client environment to the worker machine. IE
     task.propagate_env([AWS_SECRET_KEY, WANDB_API_KEY]) will set those vars on client machine to match the launching machine
