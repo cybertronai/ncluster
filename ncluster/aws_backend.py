@@ -480,7 +480,7 @@ class Task:
       tailer = self.tail_file(self._out_fn, line_prefix='rr> ')
 
     if non_blocking:
-      return
+      return 'nonblocking'
 
     elapsed_time = time.time() - start_time
     while not self.exists(self._status_fn) and elapsed_time < max_wait_sec:
@@ -515,8 +515,8 @@ class Task:
       else:
         self.log(f"Warning: command {cmd} returned status {status}")
 
-      if return_output:
-        return output
+    if return_output:
+      return output
 
   def propagate_env(self, env_vars: List[str]):
     """Propagates values of env_vars from client environment to the worker machine. IE
