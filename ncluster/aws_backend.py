@@ -427,7 +427,8 @@ class Task:
           max_wait_sec=365 * 24 * 3600,
           check_interval=0.2,
           stream_output=False,
-          sanitized=False):
+          sanitized=False,
+          return_output=False):
 
     if sudo:
       cmd = f"sudo bash -c '{cmd}'"
@@ -498,10 +499,16 @@ class Task:
     status = int(contents.strip())
     self.last_status = status
 
+    output = ''
+    if return_output:
+      output = self.output
+
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
+      if not output:
+        output = self.output
       self.log(
-        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
+        f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{output}'")
       self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {cmd} returned status {status}")
@@ -538,7 +545,7 @@ class Task:
 
     if status != 0:
       extra_msg = '(ignoring error)' if ignore_errors else '(failing)'
-      self.log(f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.read(self._out_fn)}'")
+      self.log(f"Start failing output {extra_msg}: \n{'*'*80}\n\n '{self.output}'")
       self.log(f"\n{'*'*80}\nEnd failing output")
       if not ignore_errors:
         raise RuntimeError(f"Command {self._cmd} returned status {status}")
@@ -768,8 +775,8 @@ class Task:
 
   @property
   def output(self):
-    last_fn = self._out_fn
-    return self.read(last_fn)
+    """Returns console output of last command on this task."""
+    return self.read(self._out_fn)
 
   @property
   def logdir(self):
@@ -1239,9 +1246,7 @@ def make_job(
 
   job = Job(name=name, run_name=run_name, **kwargs)
 
-  # disallow partial reuse of instances if placement group is not set
   # TODO(y): automatically retrieve placement group from existing instances
-  #import pdb; pdb.set_trace()
   if not util.is_set('NCLUSTER_AWS_PLACEMENT_GROUP'):
     names = {u.get_name(i) for i in u.lookup_instances(name, limit_to_current_user=True, states=['running', 'stopped'])}
     expected_names = {f'{i}.{name}' for i in range(num_tasks)}
