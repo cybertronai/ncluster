@@ -708,6 +708,7 @@ COMMANDS = {
   'terminate_tmux': terminate_tmux,
   'cleanup_placement_groups': cleanup_placement_groups,
   'lookup_image': lookup_image,
+  'lookup_image_name': lookup_image,
   'reboot': reboot,
   'launch': launch,
   'fix_default_security_group': fix_default_security_group,
