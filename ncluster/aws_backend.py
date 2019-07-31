@@ -11,7 +11,7 @@ import stat
 import sys
 import threading
 import time
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Union
 
 import getpass
 
@@ -422,7 +422,7 @@ class Task:
 
   # TODO(y): make this kwarg only
   # TODO(y): document
-  def run(self, cmd: str, sudo=False,
+  def run(self, cmd: Union[str, List[str]], sudo=False,
           non_blocking=False,
           ignore_errors=False,
           max_wait_sec=365 * 24 * 3600,
@@ -431,6 +431,8 @@ class Task:
           sanitized=False,
           return_output=False):
 
+    if isinstance(cmd, list):
+      cmd = ' && '.join(['{ '+command+' ; }' for command in cmd])
     if sudo:
       cmd = f"sudo bash -c '{cmd}'"
 
