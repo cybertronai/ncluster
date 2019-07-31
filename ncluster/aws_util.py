@@ -401,7 +401,7 @@ def lookup_image(wildcard: str) -> Image:
 def is_amazon_ami(image_name):
   """Heuristic to tell if given image name is Amazon Linux image."""
   image_name = image_name.lower()
-  return 'amzn' in image_name or 'amazon' in image_name or image_name.startswith('dlami23-efa') or image_name.startswith('basic-efa')
+  return 'amzn' in image_name or 'amazon' in image_name or image_name.startswith('dlami23-efa') or image_name.startswith('basic-efa') or image_name.startswith('prepare-p3dn')
 
 
 def get_aws_username(instance) -> str:

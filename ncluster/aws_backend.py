@@ -188,7 +188,7 @@ class Task:
     # 2. executing launcher logic such as mounting EFS, setting up security keys, successful completion writes to _is_initialized_fn
     #
     # New task creation will check for those two files and skip corresponding setup tasks if present
-    # Global variable NCLUSTER_FORCE_SETUP will force both parts to rerun
+    # Global variable NCLUSTER_FORCE_SETUP will force both parts to rerunset
     # task level kwarg skip_setup will allow skipping parts of setup regardless of previous setup runs succeeding
     # TODO(y): get rid of skip_setup kwarg, it's a rare case that can be set through env var
 
@@ -223,9 +223,10 @@ class Task:
       # 2) append public key to NCLUSTER_AUTHORIZED_KEYS
       # 3) propagate NCLUSTER_AUTHORIZED_KEYS to target machine and update ~/.ssh/authorized_keys
 
-      # 1. wait for keypair creation
-      success = util.wait_for_file(util.ID_RSA_PUB)  # wait for chief task to create keypair
-      assert success, f"Couldn't find {util.ID_RSA_PUB}"
+      # 1. wait for keypair creation, unless running under circleci env where keypairs are broken
+      if not util.is_set('NCLUSTER_RUNNING_UNDER_CIRCLECI'):
+        success = util.wait_for_file(util.ID_RSA_PUB)  # wait for chief task to create keypair
+        assert success, f"Couldn't find {util.ID_RSA_PUB}"
 
       # 2. concat local public key with extra keys in NCLUSTER_AUTHORIZED_KEYS
       auth_keys_env_var_str = util.get_authorized_keys()
@@ -518,14 +519,14 @@ class Task:
     if return_output:
       return output
 
-  def propagate_env(self, env_vars: List[str]):
+  def propagate_env(self, env_vars: List[str], sanitized=True):
     """Propagates values of env_vars from client environment to the worker machine. IE
     task.propagate_env([AWS_SECRET_KEY, WANDB_API_KEY]) will set those vars on client machine to match the launching machine
     """
     for var in env_vars:
       if var in os.environ:
-        # don't mirror env vars to stdout since they can contain secrets
-        self.run(f'export {var}={shlex.quote(os.environ[var])}', sanitized=True)
+        # don't mirror env vars to stdout by default since they can contain secrets
+        self.run(f'export {var}={shlex.quote(os.environ[var])}', sanitized=sanitized)
 
   def join(self, ignore_errors=False):
     """Waits until last executed command completed."""
@@ -1154,8 +1155,6 @@ def make_task(
 
     # Use high throughput disk (0.065/iops-month = about $1/hour)
     if util.is_set('NCLUSTER_AWS_FAST_ROOTDISK'):
-      assert not disk_size, f"Specified both disk_size {disk_size} and $NCLUSTER_AWS_FAST_ROOTDISK, they are incompatible as $NCLUSTER_AWS_FAST_ROOTDISK hardwired disk size"
-
       ebs = {
         'VolumeSize': disk_size if disk_size else 500,
         'VolumeType': 'io1',
