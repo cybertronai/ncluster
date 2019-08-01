@@ -204,7 +204,7 @@ def connect(fragment=''):
             f"-o ServerAliveInterval=60 " \
             f"{u.get_aws_username(instance)}@{instance.public_ip_address} "
   connect_cmd = ssh_cmd
-  DO_TMUX = False
+  do_tmux = False
   if 'INSIDE_EMACS' in os.environ:
     print("detected Emacs, skipping tmux attach")
   elif os.environ.get('TERM', 'dumb') == 'dumb':
@@ -212,19 +212,16 @@ def connect(fragment=''):
   elif 'NO_TMUX' in os.environ:
     print("detected NO_TMUX, skipping tmux attach")
   else:
-    DO_TMUX = True
+    do_tmux = True
     connect_cmd += " tmux a"
 
   print(connect_cmd)
   exit_code = os.system(connect_cmd)
 
-  if exit_code != 0 and DO_TMUX:
+  if exit_code != 0 and do_tmux:
     fix_cmd = ssh_cmd + " tmux new"
     print(f"Creating ssh tmux a returned {exit_code}, recreate tmux using '{fix_cmd}'")
     return
-    exit_code = os.system(fix_cmd)
-    if exit_code != 0:
-      print(f"command {fix_cmd} failed with code '{exit_code}'")
   else:
     print(f"cmd {connect_cmd} returned {exit_code}")
 
@@ -742,8 +739,8 @@ def main():
   # for connect commands, don't escape args in order for exact match to work (ncluster connect `exactname`)
   if mode == 'connect' or mode == 'ssh' or mode == 'old_ssh' or mode == 'mosh':
     connect(' '.join(sys.argv[2:]))  # no escaping
-
-  COMMANDS[mode](' '.join([shlex.quote(arg) for arg in sys.argv[2:]]))
+  else:
+    COMMANDS[mode](' '.join([shlex.quote(arg) for arg in sys.argv[2:]]))
 
 
 if __name__ == '__main__':
