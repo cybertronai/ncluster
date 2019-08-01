@@ -498,6 +498,7 @@ def lookup_instances(fragment='', *, verbose=True, states=('running',),
     assert fragment.endswith("'")
     exact_match = True
     fragment = fragment[1:-1]
+    print(f"Doing exact match on {fragment}")
   else:
     exact_match = False
 

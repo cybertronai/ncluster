@@ -300,6 +300,7 @@ class Task:
         self._run_raw('sudo yum install tmux -y')
         del tmux_cmd[1]  # Amazon tmux is really old, no mouse option
 
+      self.log(f"Killing previous tmux session {self.tmux_session}")
       self._run_raw(f'tmux kill-session -t {self.tmux_session}', ignore_errors=True)
       self._run_raw(''.join(tmux_cmd))
     else:
@@ -817,7 +818,7 @@ class Task:
 
     # TODO(y): below can be removed, since we are mkdir -p later
     if not ncluster_globals.should_skip_setup():
-      self.run(f'mkdir -p {logdir_root}')
+      self._run_raw(f'mkdir -p {logdir_root}')
     find_command = f'find {logdir_root} -maxdepth 1 -type d'
 
     stdout, stderr = self.run_with_output(find_command)
@@ -828,7 +829,7 @@ class Task:
       counter += 1
       new_logdir = f'{logdir_root}/{run_name}.{counter:02d}'
       logdir = new_logdir
-    self.run(f'mkdir -p {logdir}')
+    self._run_raw(f'mkdir -p {logdir}')
 
     ncluster_globals.set_logdir(run_name, logdir)
     return logdir

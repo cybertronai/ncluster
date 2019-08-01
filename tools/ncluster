@@ -738,6 +738,11 @@ def main():
     return
   if mode not in COMMANDS:
     assert False, f"unknown command '{mode}', available commands are {', '.join(str(a) for a in COMMANDS.keys())}"
+
+  # for connect commands, don't escape args in order for exact match to work (ncluster connect `exactname`)
+  if mode == 'connect' or mode == 'ssh' or mode == 'old_ssh' or mode == 'mosh':
+    connect(' '.join(sys.argv[2:]))  # no escaping
+
   COMMANDS[mode](' '.join([shlex.quote(arg) for arg in sys.argv[2:]]))
 
 
