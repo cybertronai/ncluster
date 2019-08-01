@@ -210,8 +210,6 @@ class Task:
     # Part 2: launcher initialization
     if ncluster_globals.should_skip_setup():  # API-level flag ..make_task(..., skip_setup=True)
       should_skip_setup = True
-    elif self._is_initialized_fn_present():
-      should_skip_setup = True              # default settings + reusing previous machine
     else:
       should_skip_setup = False               # default settings + new machine
 
