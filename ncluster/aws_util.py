@@ -252,7 +252,7 @@ def get_account_number() -> str:
       time.sleep(RETRY_INTERVAL_SEC)
   public_key = os.environ.get('AWS_ACCESS_KEY_ID', None)
   if not success:
-    assert False, f"Could access account, make sure you have correct credentials for region {get_region()} and key {public_key}"
+    assert False, f"Could access account, make sure you have correct credentials for region {get_region()} and AWS_PUBLIC_ACCESS_KEY {public_key}"
   return account_number
 
 

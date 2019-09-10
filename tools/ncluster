@@ -367,7 +367,7 @@ def mosh(fragment=''):
   _user_keypair_check(instance)
 
   user_cmd = f"mosh --ssh='ssh -i {u.get_keypair_fn()} -o StrictHostKeyChecking=no' " \
-             f"{u.get_aws_username(instance)}@{instance.public_ip_address} tmux attach"
+             f"{u.get_aws_username(instance)}@{instance.public_ip_address}"  # tmux attach"
   print(user_cmd)
   os.system(user_cmd)
 
@@ -738,7 +738,7 @@ def main():
 
   # for connect commands, don't escape args in order for exact match to work (ncluster connect `exactname`)
   if mode == 'connect' or mode == 'ssh' or mode == 'old_ssh' or mode == 'mosh':
-    connect(' '.join(sys.argv[2:]))  # no escaping
+    COMMANDS[mode](' '.join(sys.argv[2:]))  # no escaping
   else:
     COMMANDS[mode](' '.join([shlex.quote(arg) for arg in sys.argv[2:]]))
 

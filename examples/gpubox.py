@@ -22,9 +22,6 @@ parser.add_argument("--aws", action="store_true", help="enable to run on AWS")
 args = parser.parse_args()
 module_path = os.path.dirname(os.path.abspath(__file__))
 
-if args.aws:
-  ncluster.set_backend('aws')
-
 def main():
   task = ncluster.make_task(name=args.name,
                             instance_type=args.instance_type,
