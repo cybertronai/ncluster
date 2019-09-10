@@ -72,6 +72,9 @@ GENERIC_SMALL_INSTANCE = 't3.micro'
 
 # def check_cmd(cmd):
 
+def deprecated_set_backend(str):
+  pass
+
 def get_logdir_root() -> str:
   return LOGDIR_ROOT
 

@@ -17,6 +17,7 @@ from ._version import __version__
 
 from .aws_backend import make_job
 from .aws_backend import make_task
+from .aws_backend import deprecated_set_backend as set_backend
 
 from . import aws_util as u
 
