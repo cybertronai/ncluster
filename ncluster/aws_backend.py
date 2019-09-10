@@ -40,6 +40,7 @@ _RAW_INSTANCE_INFO = [
     ['t2.nano', 0.005, None, None],
 ]
 _RAW_HEADERS = ['cost', 'gpus', 'gpu_mem_gb']
+_DEFAULT_DISK_SIZE = 1000  # in GB
 
 INSTANCE_INFO = dict([(x[0], dict(zip(_RAW_HEADERS, x[1:]))) for x in _RAW_INSTANCE_INFO])
 
@@ -1000,7 +1001,7 @@ def make_task(
         install_script: str = '',
         instance_type: str = '',
         image_name: str = '',
-        disk_size: int = 500,
+        disk_size: int = _DEFAULT_DISK_SIZE,
         create_resources=True,
         spot=False,
         is_chief=True,
@@ -1157,7 +1158,7 @@ def make_task(
     # Use high throughput disk (0.065/iops-month = about $1/hour)
     if util.is_set('NCLUSTER_AWS_FAST_ROOTDISK'):
       ebs = {
-        'VolumeSize': disk_size if disk_size else 500,
+        'VolumeSize': disk_size if disk_size else _DEFAULT_DISK_SIZE,
         'VolumeType': 'io1',
         'Iops': 11500
       }
