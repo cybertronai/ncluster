@@ -26,7 +26,7 @@ Install pip, tmux, Python 3.6 (see below), and [write down](https://docs.google.
 
 ```
 pip install -r https://raw.githubusercontent.com/yaroslavvb/ncluster/master/requirements.txt
-pip install -U ncluster
+pip install -U ncluster # `pip install -e .` to install from a local clone
 export AWS_ACCESS_KEY_ID=AKIAIBATdf343
 export AWS_SECRET_ACCESS_KEY=z7yKEP/RhO3Olk343aiP
 export AWS_DEFAULT_REGION=us-east-1

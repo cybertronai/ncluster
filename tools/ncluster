@@ -664,8 +664,9 @@ def spot_prices(instance_type: str) -> Dict[str, float]:
     instance_type = 'c5.18xlarge'
   elif instance_type == 'c5n':
     instance_type = 'c5n.18xlarge'
-  if not instance_type:
-    instance_type = 'p3.16xlarge'
+  else:
+    # expecting exact match
+    pass
   product = 'Linux/UNIX (Amazon VPC)'
   result = {}
   client = u.get_ec2_client()
