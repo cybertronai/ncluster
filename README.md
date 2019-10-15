@@ -39,9 +39,18 @@ export AWS_DEFAULT_REGION=us-east-1
 ```
 ncluster
 ncluster ls
-ncluster hosts
+
+# bring up machine t2.nano with default AMI
+ncluster launch --name testtest --instance_type t2.nano
+
+# kill the machine
+ncluster kill testtest
+
+# list machinens
 ncluster ls
 ncluster ls <substring>
+
+
 ncluster ssh # connects to latest instance
 ncluster ssh <substring>  # connects to latest instance containing <substring>
 ncluster ssh \'<exact match>\'
@@ -67,6 +76,8 @@ nsync -d {target directory} -m {machine name substring}
 
 nsync -m gpubox # syncs . to ~ on gpubox
 nsync -d transformer-xl -m 4gpubox  # syncs . to ~/transformer-xl on 4gpubox
+
+ncluster hosts
 
 
 {substring} selects the most recently launched instances whose name contains the substring. Empty string is a valid substring. Skipping -t will sync to ~ on remote machine. Sync seems to be 1 way (from local -> remote)
